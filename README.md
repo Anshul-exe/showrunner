@@ -57,12 +57,15 @@ and the issue says so; the verifier's verdicts are numeric checks either way.
 review on GitHub. Every step is unit-tested (including act refusing anything but the
 approved proposal), and the approval needs a human, on purpose.
 
-**The first real run got it wrong, and that's in the record.** With only one minute of
-traffic before the alarm, the "baseline" already contained the slow vendor, so the
-vendor looked 1.2x slower and was refuted, and an hour-old, already-reverted rehearsal
-change was counted as a cause. Fixed by anchoring the baseline before the alarm window
-and counting a change only if it's recent and still in effect; shipped through lane 2
-in under a minute, with regression tests built from the real numbers.
+**The first real run got it wrong, and that's in the record.** Traffic had started
+only ~1.5 minutes before the chaos, so the "baseline" was a single minute: the first
+one, inflated by cold starts (vendor p95 ~1.6 s for *both* customers, including the
+untouched one). Against it the slow vendor looked 1.2x slower and was refuted, and an
+hour-old, already-reverted rehearsal change was counted as a cause. Fixed by building
+the baseline only from minutes before the alarm window, needing at least three of them
+(their median absorbs a cold minute) or else using the documented expected p95, and by
+counting a change only if it's recent and still in effect. Shipped through lane 2 in
+under a minute, with regression tests built from the real numbers.
 
 ## How it's built
 

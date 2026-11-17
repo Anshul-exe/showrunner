@@ -1,0 +1,54 @@
+# Supply-chain demo (P7, BRIEF section 0 day 2): a PR adds a dependency whose install
+# script tries to steal what's in the job and call out. Two layers, each shown:
+#   1. install scripts are off (.npmrc ignore-scripts=true): the postinstall never runs
+#   2. defence in depth, as if scripts were on: the job holds nothing worth stealing
+#      (no secrets, no AWS credentials, no id-token, read-only token not even exported)
+#      and harden-runner blocks the call to the attacker's domain and reports it
+# The fixture (demo/supply-chain/left-pad-evil) is harmless by design: it only lists
+# env var NAMES and makes one empty GET to a domain the egress policy blocks.
+name: supply-chain
+
+on:
+  pull_request:
+    paths:
+      - "demo/supply-chain/**"
+      - ".github/workflows/supply-chain.yml"
+
+permissions: {}
+
+jobs:
+  install:
+    name: install a PR's new dependency
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: no fixture, nothing to show
+        id: has
+        run: |
+          if [[ -f demo/supply-chain/app/package.json ]]; then echo "fixture=true" >> "$GITHUB_OUTPUT"; fi
+      - name: "layer 1: npm install with install scripts off"
+        if: steps.has.outputs.fixture == 'true'
+        working-directory: demo/supply-chain/app
+        run: |
+          npm config get ignore-scripts
+          npm ci --offline --no-audit --no-fund
+          if [[ -e ../left-pad-evil/.postinstall-ran ]]; then  # npm links file: deps
+            echo "::error::the postinstall ran: install scripts are NOT off"; exit 1
+          fi
+          echo "postinstall did not run (ignore-scripts=true)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: "layer 2: as if scripts were on, what could it reach?"
+        if: steps.has.outputs.fixture == 'true'
+        working-directory: demo/supply-chain/app
+        run: |
+          node node_modules/left-pad-evil/postinstall.js | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -q '^RESULT: contained$' "$GITHUB_STEP_SUMMARY"

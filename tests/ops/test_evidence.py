@@ -18,8 +18,9 @@ def test_split_series_now_vs_baseline():
 
 
 def test_baseline_never_includes_the_minutes_of_the_problem():
-    # The real run on 18/11/2026 23:11 UTC: traffic started 6 min before the alarm, so
-    # the only "before" minute already had the slow vendor in it.
+    # The real run on 17/11/2026 23:11 UTC: traffic started ~1.5 min before the chaos, so
+    # the only "before" minute was the first one, inflated by cold starts (both
+    # customers' vendor p95 ~1.6 s, including the one without chaos).
     alarm = datetime(2026, 11, 17, 23, 11, 5, tzinfo=timezone.utc)
     times = [alarm - timedelta(minutes=m) for m in (4, 3, 2, 1)]
     s = evidence.split_series([1366, 1600, 1692, 1700], times, alarm - evidence.ONSET_LEAD,

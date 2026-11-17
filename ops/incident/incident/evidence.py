@@ -8,8 +8,9 @@ median of the last 3 minutes, "baseline" the median of the minutes that ended be
 degradation could have started (the alarm needs 2 of 3 one-minute periods, so: before
 alarm time - 4 min). Fewer than 3 such minutes (traffic only just started) and the
 baseline is the dependency's expected p95 instead, marked as such: a median of minutes
-that already include the problem would hide it (seen on 17/11/2026: one polluted
-minute made a 1,600 ms vendor look only 1.2x slower).
+that is too short or includes the problem would hide it (seen on 17/11/2026: the only
+"before" minute was the first minute of traffic, inflated by cold starts, and made a
+1,600 ms vendor look only 1.2x slower).
 
 Changes count as recent within 15 minutes before the alarm (RECENT_CHANGE); older ones
 are listed for context (CHANGE_WINDOW) but can't confirm a change hypothesis.
