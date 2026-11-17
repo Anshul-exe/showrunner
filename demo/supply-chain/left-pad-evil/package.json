@@ -1,0 +1,10 @@
+{
+  "name": "left-pad-evil",
+  "version": "1.3.1",
+  "description": "DEMO FIXTURE (harmless): behaves like a malicious package's install script. See demo/supply-chain/README.md.",
+  "main": "index.js",
+  "license": "MIT",
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  }
+}

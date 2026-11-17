@@ -1,0 +1,9 @@
+{
+  "name": "demo-app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A service that 'needs' left-pad. The PR under review adds this dependency.",
+  "dependencies": {
+    "left-pad-evil": "file:../left-pad-evil"
+  }
+}
