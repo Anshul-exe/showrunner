@@ -1,0 +1,10 @@
+# One customer environment. This file is the whole request: open a PR, CI validates it
+# against customers/schema.json and posts the Terraform plan, merge applies it.
+customer: acme-tv
+env: dev
+tier: standard
+owner: team-acme
+cost_center: acme-tv
+budget_usd: 10
+catalog: tv
+features: {}

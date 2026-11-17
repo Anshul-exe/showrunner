@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Showrunner customer environment",
+  "description": "platform/customers/<customer>/<env>.yaml. Checked in CI (tests/test_customer_specs.py) and again by Terraform variable validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["customer", "env", "owner", "cost_center"],
+  "properties": {
+    "customer": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,20}[a-z0-9]$"},
+    "env": {"enum": ["dev", "prod"]},
+    "tier": {"enum": ["standard", "premium"], "default": "standard"},
+    "owner": {"type": "string", "pattern": "^[a-z0-9-]{2,40}$", "description": "Owning team (a tag, not a person)."},
+    "cost_center": {"type": "string", "pattern": "^[a-z0-9-]{2,40}$"},
+    "budget_usd": {"type": "number", "minimum": 1, "maximum": 100, "description": "Monthly budget for the cost report (tier 3)."},
+    "catalog": {"enum": ["tv", "sports"], "default": "tv"},
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "All optional, all off by default. Later tiers add keys here.",
+      "properties": {
+        "pitr": {"type": "boolean"},
+        "customer_page": {"type": "boolean"},
+        "canary": {"type": "boolean"}
+      }
+    }
+  }
+}

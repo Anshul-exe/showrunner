@@ -1,0 +1,12 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "catalog-api flags",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["vendor_fallback", "catalog_ttl_s", "recs_ttl_s"],
+  "properties": {
+    "vendor_fallback": {"type": "boolean", "description": "Serve cached recommendations from DynamoDB instead of calling the vendor."},
+    "catalog_ttl_s": {"type": "integer", "minimum": 10, "maximum": 86400},
+    "recs_ttl_s": {"type": "integer", "minimum": 10, "maximum": 86400}
+  }
+}

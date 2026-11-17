@@ -1,0 +1,10 @@
+# One customer environment. This file is the whole request: open a PR, CI validates it
+# against customers/schema.json and posts the Terraform plan, merge applies it.
+customer: nordic-sports
+env: dev
+tier: premium
+owner: team-nordic
+cost_center: nordic-sports
+budget_usd: 15
+catalog: sports
+features: {}
