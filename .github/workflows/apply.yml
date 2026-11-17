@@ -16,6 +16,7 @@ on:
       - "platform/**"
       - "tools/ci/**"
       - "tools/build/**"
+  workflow_dispatch: # re-apply every dev stack (e.g. after the first push)
 
 permissions: {}
 
@@ -52,7 +53,12 @@ jobs:
           AFTER: ${{ github.sha }}
         run: |
           # shared/dev first, then customers (they read shared's SSM outputs).
-          matrix=$(git diff --name-only "$BEFORE" "$AFTER" | python3 tools/ci/changed_stacks.py \
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch || -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
+            changed() { git ls-files platform; }     # manual run or new branch: all dev stacks
+          else
+            changed() { git diff --name-only "$BEFORE" "$AFTER"; }
+          fi
+          matrix=$(changed | python3 tools/ci/changed_stacks.py \
             | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin) if x["stack"].endswith("/dev")]; s.sort(key=lambda x: (not x["stack"].startswith("shared/"), x["stack"])); print(json.dumps(s))')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "$matrix" | python3 -m json.tool
@@ -84,6 +90,8 @@ jobs:
             registry.terraform.io:443
             pypi.org:443
             files.pythonhosted.org:443
+            releases.astral.sh:443
+            raw.githubusercontent.com:443
             sts.amazonaws.com:443
             sts.us-east-1.amazonaws.com:443
             iam.amazonaws.com:443

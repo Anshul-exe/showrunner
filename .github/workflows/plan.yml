@@ -78,6 +78,8 @@ jobs:
             registry.terraform.io:443
             pypi.org:443
             files.pythonhosted.org:443
+            releases.astral.sh:443
+            raw.githubusercontent.com:443
             sts.amazonaws.com:443
             sts.us-east-1.amazonaws.com:443
             iam.amazonaws.com:443
