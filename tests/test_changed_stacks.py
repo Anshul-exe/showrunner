@@ -96,3 +96,11 @@ def test_agent_instruction_files_plan_ops_core(tmp_path):
     stacks = make_repo(tmp_path)
     assert keys(cs.affected(["ops/agents/triage.md"], stacks)) == ["ops-core"]
     assert keys(cs.affected(["ops/agents/README.md", "ops/incident/incident/render.py"], stacks)) == []
+
+
+def test_plan_comment_labels_the_lambda_env_false_diff():
+    import plan_comment
+    text = ("  ~ resource \"aws_lambda_function\" \"this\" {\n      ~ environment {\n          + variables = {\n"
+            "              + \"ENV\" = \"dev\"\n            }\n        }\nPlan: 0 to add, 2 to change, 0 to destroy.")
+    assert "known false diff" in plan_comment.summarise("customers/acme-tv/dev", text, True)
+    assert "known false diff" not in plan_comment.summarise("shared/dev", "No changes.", True)
