@@ -1,0 +1,4 @@
+# Lint tools, isolated from the project lock (checkov pins old packaging).
+# Regenerate: uv pip compile tools/lint/requirements.in --generate-hashes --python-version 3.12 -o tools/lint/requirements.txt
+checkov==3.4.3
+zizmor==1.32.0

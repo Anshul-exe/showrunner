@@ -1,0 +1,24 @@
+[project]
+name = "showrunner"
+version = "0.0.0"
+description = "Operations platform for several customers' streaming services on AWS."
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "boto3==1.44.5",
+    "jsonschema==4.26.0",
+    "moto[appconfig,dynamodb]==5.2.5",
+    "pytest==9.2.0",
+    "pyyaml==6.0.3",
+    "valkey==6.2.0",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

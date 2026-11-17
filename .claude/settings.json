@@ -1,0 +1,35 @@
+{
+  "env": {
+    "AWS_PROFILE": "showrunner",
+    "AWS_REGION": "us-east-1",
+    "AWS_DEFAULT_REGION": "us-east-1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(terraform apply *)",
+      "Bash(terraform -chdir=* apply *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push)",
+      "Bash(git push origin main)",
+      "Bash(git push -u origin main)",
+      "Bash(./sr *)"
+    ],
+    "deny": [
+      "Bash(aws organizations *)",
+      "Bash(aws controltower *)",
+      "Bash(terraform destroy *)",
+      "Bash(terraform -chdir=* destroy *)",
+      "Bash(terraform apply -destroy *)",
+      "Bash(terraform -chdir=* apply -destroy *)",
+      "Bash(terraform state rm *)",
+      "Bash(terraform -chdir=* state rm *)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push * --force *)",
+      "Bash(git push * --force-with-lease *)",
+      "Bash(git push * -f *)",
+      "Bash(git push * +*)"
+    ]
+  }
+}

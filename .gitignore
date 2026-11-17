@@ -1,0 +1,43 @@
+# Interview context: never commit (CLAUDE.md rule 5)
+BRIEF.md
+CLAUDE.md
+private/
+
+# Account pin and local values
+.showrunner-account
+*.tfvars
+!*.tfvars.example
+*.tfvars.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan*
+plan.json
+crash.log
+.terraform.tfstate.lock.info
+
+# Local tool binaries
+.tools/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Personal Claude Code overrides
+.claude/settings.local.json
+/build/
+.terraform-data/
+
+# Keys (the GitHub App key lives outside the repo anyway)
+*.pem
