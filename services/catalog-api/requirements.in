@@ -1,0 +1,3 @@
+# Runtime dependencies of catalog-api (boto3 comes with the Lambda runtime).
+# Regenerate: uv pip compile services/catalog-api/requirements.in --generate-hashes --python-version 3.12 --python-platform aarch64-manylinux2014 -o services/catalog-api/requirements.txt
+valkey==6.2.0
