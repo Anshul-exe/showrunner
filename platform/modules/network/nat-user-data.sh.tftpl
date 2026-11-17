@@ -1,0 +1,41 @@
+#!/bin/bash
+# NAT instance bootstrap (Amazon Linux 2023). Runs on every new instance; the steps are
+# idempotent. Log: /var/log/sr-nat-setup.log
+set -euo pipefail
+exec > >(tee -a /var/log/sr-nat-setup.log) 2>&1
+echo "sr-nat: start $(date -u +%FT%TZ)"
+
+TOKEN=$(curl -sS -X PUT http://169.254.169.254/latest/api/token -H "X-aws-ec2-metadata-token-ttl-seconds: 300")
+INSTANCE_ID=$(curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/instance-id)
+
+# 1. Forward packets.
+echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/90-sr-nat.conf
+sysctl --system >/dev/null
+
+# 2. Masquerade the VPC's traffic out of the primary interface.
+dnf install -y -q nftables
+IFACE=$(ip -o -4 route show to default | awk '{print $5; exit}')
+cat > /etc/sysconfig/nftables.conf <<NFT
+flush ruleset
+table ip sr_nat {
+  chain postrouting {
+    type nat hook postrouting priority srcnat; policy accept;
+    ip saddr ${vpc_cidr} oifname "$IFACE" masquerade
+  }
+}
+NFT
+systemctl enable nftables
+systemctl restart nftables
+
+# 3. A router must accept packets that aren't addressed to it.
+aws ec2 modify-instance-attribute --region ${region} --instance-id "$INSTANCE_ID" --no-source-dest-check
+
+# 4. Point the private subnets' default route at this instance. Replace first (the
+#    route may point at a dead predecessor: a blackhole), create if it doesn't exist.
+if ! aws ec2 replace-route --region ${region} --route-table-id ${route_table_id} \
+      --destination-cidr-block 0.0.0.0/0 --instance-id "$INSTANCE_ID" 2>/dev/null; then
+  aws ec2 create-route --region ${region} --route-table-id ${route_table_id} \
+      --destination-cidr-block 0.0.0.0/0 --instance-id "$INSTANCE_ID"
+fi
+
+echo "sr-nat: ready, route ${route_table_id} 0.0.0.0/0 -> $INSTANCE_ID via $IFACE"
