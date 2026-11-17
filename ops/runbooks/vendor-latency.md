@@ -6,6 +6,7 @@ metric: Showrunner/DependencyLatency p95 {customer, env, dependency=vendor-recs}
 safe_actions:
   - id: vendor-fallback-on
     lane: runtime
+    applies_to: vendor-recs
     description: Stop calling the vendor; serve the last known recommendations from DynamoDB.
     appconfig:
       profile: flags

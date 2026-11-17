@@ -10,6 +10,7 @@ on:
     paths:
       - "platform/**"
       - "tools/ci/**"
+      - "ops/agents/**"
       - ".github/workflows/plan.yml"
 
 permissions: {}
@@ -46,8 +47,10 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          matrix=$(git diff --name-only "$BASE_SHA"...HEAD | python3 tools/ci/changed_stacks.py)
-          # Only dev and shared stacks exist in the core (BRIEF section 0).
+          # bootstrap is applied by an admin by hand (it creates CI's own roles and needs
+          # values CI doesn't hold), so CI never plans it.
+          matrix=$(git diff --name-only "$BASE_SHA"...HEAD | python3 tools/ci/changed_stacks.py \
+            | python3 -c 'import json,sys; print(json.dumps([s for s in json.load(sys.stdin) if s["stack"] != "bootstrap"]))')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "$matrix" | python3 -m json.tool
 

@@ -77,8 +77,10 @@ def affected(paths: list[str], stacks: dict[str, dict]) -> list[dict]:
             f"{PLATFORM}/modules/ops-core/"
         ):
             hit |= prefixed("ops-core")
+        elif path.startswith("ops/agents/") and path.endswith(".md") and not path.endswith("README.md"):
+            hit |= prefixed("ops-core")  # agents' IAM policies are built from these files
         elif path.startswith(f"{PLATFORM}/modules/lambda-function/"):
-            hit |= prefixed("shared/") | prefixed("customers/")  # both create functions
+            hit |= prefixed("shared/") | prefixed("customers/") | prefixed("ops-core")  # all create functions
         elif path.startswith(
             (
                 f"{PLATFORM}/shared/",

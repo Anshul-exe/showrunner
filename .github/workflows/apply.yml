@@ -16,6 +16,7 @@ on:
       - "platform/**"
       - "tools/ci/**"
       - "tools/build/**"
+      - "ops/agents/**"
   workflow_dispatch: # re-apply every dev stack (e.g. after the first push)
 
 permissions: {}
@@ -37,6 +38,7 @@ jobs:
       contents: read
     outputs:
       matrix: ${{ steps.map.outputs.matrix }}
+      ops: ${{ steps.map.outputs.ops }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -58,9 +60,11 @@ jobs:
           else
             changed() { git diff --name-only "$BEFORE" "$AFTER"; }
           fi
-          matrix=$(changed | python3 tools/ci/changed_stacks.py \
-            | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin) if x["stack"].endswith("/dev")]; s.sort(key=lambda x: (not x["stack"].startswith("shared/"), x["stack"])); print(json.dumps(s))')
+          all=$( { changed; [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && echo ops/agents/triage.md; } | python3 tools/ci/changed_stacks.py)
+          matrix=$(echo "$all" | python3 -c 'import json,sys; s=[x for x in json.load(sys.stdin) if x["stack"].endswith("/dev")]; s.sort(key=lambda x: (not x["stack"].startswith("shared/"), x["stack"])); print(json.dumps(s))')
+          ops=$(echo "$all" | python3 -c 'import json,sys; print(str(any(x["stack"] == "ops-core" for x in json.load(sys.stdin))).lower())')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "ops=$ops" >> "$GITHUB_OUTPUT"
           echo "$matrix" | python3 -m json.tool
 
   apply:
@@ -129,3 +133,64 @@ jobs:
           conftest test --no-color --policy platform/policy "$RUNNER_TEMP/plan.json"
           rm -f "$RUNNER_TEMP/plan.json"
           tools/tf.sh "$STACK" apply -input=false -lock-timeout=300s "$plan"
+
+  # The ops plane (incident loop) can read the GitHub App key and change customers'
+  # runtime config, so it's applied with the prod role, behind the `prod` environment's
+  # required reviewer. Runs after the dev stacks: it reads their SSM outputs.
+  apply-ops-core:
+    name: apply ops-core (needs approval)
+    needs: [stacks, apply]
+    if: always() && needs.stacks.outputs.ops == 'true' && needs.apply.result != 'failure'
+    runs-on: ubuntu-24.04
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write # OIDC -> showrunner-ci-apply-prod
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            releases.hashicorp.com:443
+            registry.terraform.io:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            releases.astral.sh:443
+            raw.githubusercontent.com:443
+            sts.amazonaws.com:443
+            sts.us-east-1.amazonaws.com:443
+            iam.amazonaws.com:443
+            *.us-east-1.amazonaws.com:443
+            *.s3.us-east-1.amazonaws.com:443
+            *.s3.amazonaws.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/showrunner-ci-apply-prod
+          aws-region: us-east-1
+          role-session-name: apply-ops-${{ github.run_id }}
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.9
+          terraform_wrapper: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - run: tools/ci/install-tools.sh conftest
+      - name: plan, policy check, apply
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          plan="$RUNNER_TEMP/ops.tfplan"
+          tools/tf.sh ops-core plan -input=false -lock-timeout=300s -out="$plan"
+          TF_DATA_DIR="$PWD/.terraform-data/ops-core" terraform -chdir=platform/ops-core show -json "$plan" > "$RUNNER_TEMP/plan.json"
+          conftest test --no-color --policy platform/policy "$RUNNER_TEMP/plan.json"
+          rm -f "$RUNNER_TEMP/plan.json"
+          tools/tf.sh ops-core apply -input=false -lock-timeout=300s "$plan"
