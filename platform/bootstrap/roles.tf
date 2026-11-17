@@ -11,7 +11,10 @@
 #   showrunner-ci-approver     ref:refs/heads/main           approve.yml        SendTaskSuccess/Failure only
 
 locals {
-  sub_prefix = "repo:${local.repo}"
+  # GitHub's immutable subject format (repos created after 15/07/2026):
+  # repo:OWNER@OWNER_ID/NAME@REPO_ID:<context>. Names can be renamed or re-registered;
+  # the IDs can't. Only `sub` changes; job_workflow_ref keeps owner/name. ADR 0009.
+  sub_prefix = "repo:${split("/", local.repo)[0]}@${var.github_owner_id}/${split("/", local.repo)[1]}@${var.github_repository_id}"
 
   envs = {
     dev = {
@@ -98,6 +101,24 @@ data "aws_iam_policy_document" "apply" {
       variable = "iam:PermissionsBoundary"
       values   = [local.workload_boundary_arn]
     }
+  }
+
+  # Terraform refreshes every role, policy and instance profile it manages before it
+  # plans. Read-only, and only for pipeline-owned names. (Missing in the first version:
+  # found by the first CI apply, 18/11/2026.)
+  statement {
+    sid = "ReadWorkloadIam"
+    actions = [
+      "iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies",
+      "iam:ListAttachedRolePolicies", "iam:ListRoleTags", "iam:ListInstanceProfilesForRole",
+      "iam:GetPolicy", "iam:GetPolicyVersion", "iam:ListPolicyVersions", "iam:ListPolicyTags",
+      "iam:GetInstanceProfile", "iam:ListInstanceProfileTags",
+    ]
+    resources = [
+      "${local.arn_prefix.iam}:role/${local.workload_prefix}-*",
+      "${local.arn_prefix.iam}:policy/${local.workload_prefix}-*",
+      "${local.arn_prefix.iam}:instance-profile/${local.workload_prefix}-*",
+    ]
   }
 
   statement {

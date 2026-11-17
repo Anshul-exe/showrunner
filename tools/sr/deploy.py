@@ -1,7 +1,8 @@
 """Lane 2, app code (ADR 0004): build the zip, update every function of that service in
 the env, publish a version, point alias `live` at it. No Terraform involved.
 
-Core simplification: the alias moves all at once. Tier 2 replaces this with a container
+`incident` ships the incident loop's five functions (one bundle). Core simplification:
+the alias moves all at once. Tier 2 replaces this with a container
 image deployed by digest and a CodeDeploy canary on `live` (Canary10Percent5Minutes,
 rolled back by the error/latency alarms).
 """
@@ -22,6 +23,8 @@ def functions(service: str, env: str) -> list[str]:
         return [customer_params(c, env)["function_name"] for c in customers(env)]
     if service == "vendor-mock":
         return [shared_params(env)["vendor_function_name"]]
+    if service == "incident":  # one bundle, five functions (modules/ops-core)
+        return [f"sr-ops-incident-{f}" for f in ("github", "evidence", "triage", "verify", "act")]
     raise SystemExit(f"unknown service {service}")
 
 

@@ -25,6 +25,10 @@ except where marked.
 | CloudWatch Logs ingestion / storage | $0.50/GB / $0.03/GB-month |
 | CloudWatch Logs data protection | $0.12/GB scanned |
 | CloudWatch dashboards | $3/dashboard-month after the first 3 (pricing page, not the API query) |
+| Step Functions Standard | $0.000025 per state transition |
+| DynamoDB on-demand | $0.625 per million writes, $0.125 per million reads |
+| Bedrock Amazon Nova Lite (on-demand) | $0.00006 / 1K input tokens, $0.00024 / 1K output tokens |
+| EventBridge, AWS service events on the default bus | free |
 
 ## The core, running all month (tier 1)
 
@@ -41,6 +45,8 @@ except where marked.
 | Logs (Lambda, API access, VPC flow logs, 3-7 day retention) | < $0.50 | idle most of the time |
 | Lambda, API Gateway, DynamoDB on-demand, AppConfig, SNS, SSM | < $1 | request-priced, near zero at idle |
 | CloudTrail (one trail, management events) + its S3 bucket | < $0.10 | first copy of management events is free |
+| Incident loop (day 2): Step Functions, 5 Lambdas, audit table, EventBridge rule | < $0.10 | ~30-60 transitions = ~$0.0015 per incident; idle costs nothing |
+| Bedrock Nova Lite (when enabled) | < $0.05 | ~3K tokens in, ~1K out per agent call = ~$0.0004; capped by the $5 Bedrock budget |
 | **Total** | **~$17-22** | target in the brief: $22-28 |
 
 Each new customer adds ~$0.60-2 (its 6 metrics, 5 alarm metrics, a table, a function):

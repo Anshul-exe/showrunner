@@ -7,3 +7,4 @@ enable_anomaly_detection = false
 
 # Turn on once to prove alert email delivery, then off.
 enable_smoke_budget = false
+github_owner_id      = 12345678 # gh api users/OWNER --jq .id

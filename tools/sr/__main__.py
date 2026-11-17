@@ -6,7 +6,7 @@
     ./sr demo traffic [--minutes 10] [--rps 2] [--customer c ...]
     ./sr demo watch [--once]
     ./sr demo s1 start|stop
-    ./sr deploy <catalog-api|vendor-mock>
+    ./sr deploy <catalog-api|vendor-mock|incident>
     ./sr snapshot --since 22:00 --until 22:20 --out docs/demo/s1   (UTC, today)
 
 Uses the `showrunner` AWS profile (pinned in .claude/settings.json) and refuses to run
@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     d.add_argument("--once", action="store_true")
 
     dp = sub.add_parser("deploy", help="ship app code (lane 2): new version, alias live")
-    dp.add_argument("service", choices=["catalog-api", "vendor-mock"])
+    dp.add_argument("service", choices=["catalog-api", "vendor-mock", "incident"])
 
     sp = sub.add_parser("snapshot", help="render dashboard widgets to PNG for a time window (UTC)")
     sp.add_argument("--since", required=True, help="HH:MM today or ISO time, UTC")

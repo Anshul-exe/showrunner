@@ -6,6 +6,7 @@ metric: AWS/ApiGateway Latency p95 {ApiId, Stage=$default}
 safe_actions:
   - id: vendor-fallback-on
     lane: runtime
+    applies_to: vendor-recs
     description: Only if per-dependency metrics show the vendor is the slow dependency.
     appconfig:
       profile: flags

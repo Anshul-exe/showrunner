@@ -1,0 +1,4 @@
+# Incident loop Lambdas (arm64, Python 3.12). boto3 comes with the runtime.
+# Regenerate: uv pip compile ops/incident/requirements.in --generate-hashes --python-version 3.12 --python-platform aarch64-manylinux_2_28 -o ops/incident/requirements.txt
+cryptography==50.0.2  # RS256 for the GitHub App JWT
+pyyaml==6.0.3         # runbook and agent front matter

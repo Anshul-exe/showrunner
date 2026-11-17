@@ -37,6 +37,14 @@ Observed at first apply (18/11/2026): the first launch failed with "Authenticati
 Failure" (the new instance profile hadn't propagated yet); the ASG retried and the
 second launch succeeded and wrote the route by itself.
 
+Observed in the first CI apply (17/11/2026, 22:46 UTC): AWS had published a new AL2023
+AMI since the local apply, so the launch template got a new version and the ASG's
+instance refresh replaced the NAT instance. Refresh took 77 s (22:46:16-22:47:33); the
+new instance re-pointed the private route at itself; both customers' vendor calls
+worked afterwards. No human, no Terraform route. It also shows the cost: **any** apply
+of shared/dev after an AMI release causes a short egress outage. Production: pin the
+AMI and roll it deliberately (or use NAT gateways).
+
 ## At production scale
 
 One NAT gateway per AZ, each AZ's private route table pointing at its own gateway.

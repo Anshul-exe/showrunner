@@ -50,7 +50,7 @@ jobs:
         run: terraform fmt -check -recursive -diff platform
       - name: validate every root
         run: |
-          for root in platform/bootstrap platform/shared platform/envs; do
+          for root in platform/bootstrap platform/shared platform/envs platform/ops-core; do
             echo "::group::$root"
             terraform -chdir="$root" init -backend=false -input=false >/dev/null
             terraform -chdir="$root" validate

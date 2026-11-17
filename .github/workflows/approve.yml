@@ -1,0 +1,125 @@
+# A human approves (or rejects) an incident action: `/approve A1` or `/reject A1 <reason>`
+# as a comment on an `incident` issue.
+#
+# Job 1 (no cloud access) checks the command and the commenter: a CODEOWNER with the
+# admin or maintain role. Only then job 2 gets an OIDC token for showrunner-ci-approver,
+# whose only permission is states:SendTaskSuccess/Failure (ADR 0008). Its trust policy
+# accepts only this workflow on refs/heads/main. The task token is taken only from a
+# comment made by the incident loop's GitHub App (vars.SR_APP_ID).
+name: approve
+
+# zizmor's dangerous-triggers warns about running untrusted PR code with privileges. Not
+# here: PR comments are excluded (`!github.event.issue.pull_request`), only the default
+# branch's own two files are checked out, and the comment body only ever reaches
+# scripts through env. issue_comment is the only trigger that sees issue comments.
+on:
+  issue_comment: # zizmor: ignore[dangerous-triggers]
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: approve-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: is this an allowed approval?
+    if: >-
+      !github.event.issue.pull_request &&
+      contains(github.event.issue.labels.*.name, 'incident') &&
+      (startsWith(github.event.comment.body, '/approve') || startsWith(github.event.comment.body, '/reject'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+      decision: ${{ steps.check.outputs.decision }}
+      action: ${{ steps.check.outputs.action }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .github/CODEOWNERS
+            tools/ci/approve.py
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.event.comment.user.login }}
+          BODY: ${{ github.event.comment.body }}
+        run: python3 tools/ci/approve.py check
+
+  send:
+    name: send the decision to the incident loop
+    needs: check
+    if: needs.check.outputs.ok == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write # the acknowledgement comment
+      id-token: write # OIDC -> showrunner-ci-approver (SendTaskSuccess only)
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            sts.amazonaws.com:443
+            sts.us-east-1.amazonaws.com:443
+            states.us-east-1.amazonaws.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: tools/ci/approve.py
+      - name: find the task token posted by the incident loop
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.event.comment.user.login }}
+          BODY: ${{ github.event.comment.body }}
+          ISSUE: ${{ github.event.issue.number }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+          SR_APP_ID: ${{ vars.SR_APP_ID }}
+        run: python3 tools/ci/approve.py send
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/showrunner-ci-approver
+          aws-region: us-east-1
+          role-session-name: approve-issue-${{ github.event.issue.number }}
+      - name: send task success
+        id: send
+        run: |
+          if aws stepfunctions send-task-success \
+              --task-token "$(cat "$RUNNER_TEMP/task-token")" \
+              --task-output "file://$RUNNER_TEMP/task-output.json" > /dev/null; then
+            echo "result=sent" >> "$GITHUB_OUTPUT"
+          else
+            echo "result=failed" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f "$RUNNER_TEMP/task-token"
+      - name: acknowledge on the issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          ACTOR: ${{ github.event.comment.user.login }}
+          DECISION: ${{ needs.check.outputs.decision }}
+          ACTION: ${{ needs.check.outputs.action }}
+          RESULT: ${{ steps.send.outputs.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ "$RESULT" == sent ]]; then
+            msg="Recorded: **$DECISION $ACTION** by $ACTOR. The incident loop continues ([run]($RUN_URL))."
+          else
+            msg="Could not deliver **$DECISION $ACTION** by $ACTOR: the proposal may have expired or already been answered ([run]($RUN_URL))."
+          fi
+          gh issue comment "$ISSUE" --repo "$GITHUB_REPOSITORY" --body "$msg"

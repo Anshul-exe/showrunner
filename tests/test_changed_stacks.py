@@ -64,10 +64,11 @@ def test_bootstrap_only_repo(tmp_path):
     assert keys(cs.affected(["platform/bootstrap/roles.tf"], stacks)) == ["bootstrap"]
 
 
-def test_lambda_module_plans_shared_and_customers(tmp_path):
+def test_lambda_module_plans_every_stack_with_functions(tmp_path):
     stacks = make_repo(tmp_path)
     got = keys(cs.affected(["platform/modules/lambda-function/main.tf"], stacks))
-    assert got == ["customers/acme-tv/dev", "customers/acme-tv/prod", "customers/nordic-sports/prod", "shared/dev", "shared/prod"]
+    assert got == ["customers/acme-tv/dev", "customers/acme-tv/prod", "customers/nordic-sports/prod", "ops-core",
+                   "shared/dev", "shared/prod"]
 
 
 def test_vendor_mock_module_plans_shared(tmp_path):
@@ -89,3 +90,9 @@ def test_plan_comment_summary():
     assert "1 to add, 2 to change, **0 to destroy**" in body and "passed" in body
     assert "no changes" in plan_comment.summarise("x", "No changes. Your infrastructure matches", True)
     assert len(plan_comment.summarise("x", "a" * 100000, False)) < 61000
+
+
+def test_agent_instruction_files_plan_ops_core(tmp_path):
+    stacks = make_repo(tmp_path)
+    assert keys(cs.affected(["ops/agents/triage.md"], stacks)) == ["ops-core"]
+    assert keys(cs.affected(["ops/agents/README.md", "ops/incident/incident/render.py"], stacks)) == []

@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-for p in ("services/shared", "services/catalog-api", "services/vendor-mock", "tools"):
+for p in ("services/shared", "services/catalog-api", "services/vendor-mock", "tools", "ops/lib", "ops/incident"):
     sys.path.insert(0, str(ROOT / p))
 
 

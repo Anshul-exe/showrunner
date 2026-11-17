@@ -6,6 +6,7 @@ metric: sum of Showrunner/DependencyErrors {customer, env, dependency in valkey,
 safe_actions:
   - id: vendor-fallback-on
     lane: runtime
+    applies_to: vendor-recs
     description: If the errors are vendor-recs, stop calling the vendor and serve cached recommendations.
     appconfig:
       profile: flags
@@ -16,6 +17,7 @@ safe_actions:
       set: {vendor_fallback: false}
   - id: rollback-last-appconfig-deployment
     lane: runtime
+    applies_to: config-change
     description: If an AppConfig deployment happened in the window, roll back to the previous version.
     blast_radius: One customer env's runtime config returns to its previous version.
     rollback: Redeploy the version that was rolled back.

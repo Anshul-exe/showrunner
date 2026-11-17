@@ -20,6 +20,11 @@ variable "github_repository" {
   default     = "Anshul-exe/showrunner"
 }
 
+variable "github_owner_id" {
+  description = "Immutable numeric ID of the repository owner (gh api users/OWNER --jq .id). Part of the OIDC sub claim for repos created after 15/07/2026 (ADR 0009)."
+  type        = number
+}
+
 variable "github_repository_id" {
   description = "Immutable numeric ID of the repository (gh api repos/OWNER/NAME --jq .id)."
   type        = number
