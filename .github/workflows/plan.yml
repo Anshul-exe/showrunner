@@ -48,9 +48,10 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
           # bootstrap is applied by an admin by hand (it creates CI's own roles and needs
-          # values CI doesn't hold), so CI never plans it.
+          # values CI doesn't hold), so CI never plans it. Prod stacks arrive in tier 2
+          # (BRIEF section 0): until then planning them only shows "create everything".
           matrix=$(git diff --name-only "$BASE_SHA"...HEAD | python3 tools/ci/changed_stacks.py \
-            | python3 -c 'import json,sys; print(json.dumps([s for s in json.load(sys.stdin) if s["stack"] != "bootstrap"]))')
+            | python3 -c 'import json,sys; print(json.dumps([s for s in json.load(sys.stdin) if s["stack"] == "ops-core" or s["stack"].endswith("/dev")]))')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "$matrix" | python3 -m json.tool
 

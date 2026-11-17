@@ -1,11 +1,13 @@
 """sr: the Showrunner operator CLI.
 
+    ./sr preflight [--json]          is the demo ready? (exit 1 = no)
     ./sr status [--env dev]
     ./sr config show <customer> <flags|chaos>
     ./sr config set  <customer> <flags|chaos> key=value [key=value...]
     ./sr demo traffic [--minutes 10] [--rps 2] [--customer c ...]
     ./sr demo watch [--once]
     ./sr demo s1 start|stop
+    ./sr demo reset                   every customer's flags + chaos back to defaults
     ./sr deploy <catalog-api|vendor-mock|incident>
     ./sr snapshot --since 22:00 --until 22:20 --out docs/demo/s1   (UTC, today)
 
@@ -26,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import appconfig  # noqa: E402
 import common  # noqa: E402
 import deploy  # noqa: E402
+import preflight  # noqa: E402
 import snapshot  # noqa: E402
 import scenarios  # noqa: E402
 import traffic  # noqa: E402
@@ -67,6 +70,8 @@ def cmd_demo(args) -> int:
         watch.watch(customers, args.env, once=args.once)
     elif args.demo == "s1":
         return scenarios.s1(args.action, args.env)
+    elif args.demo == "reset":
+        return preflight.reset(args.env)
     return 0
 
 
@@ -96,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("status", help="alarms, dependency p95, flags and chaos")
 
+    pf = sub.add_parser("preflight", help="is the demo ready? APIs, alarms, config, NAT, loop, App, Bedrock, budget")
+    pf.add_argument("--json", action="store_true")
+
     c = sub.add_parser("config", help="show or change runtime config (AppConfig, lane 1)")
     c.add_argument("action", choices=["show", "set"])
     c.add_argument("customer")
@@ -103,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("pairs", nargs="*")
 
     d = sub.add_parser("demo", help="demo helpers (dev only)")
-    d.add_argument("demo", choices=["traffic", "watch", "s1"])
+    d.add_argument("demo", choices=["traffic", "watch", "s1", "reset"])
     d.add_argument("action", nargs="?", choices=["start", "stop"])
     d.add_argument("--minutes", type=float, default=10)
     d.add_argument("--rps", type=float, default=2)
@@ -121,6 +129,8 @@ def main(argv: list[str] | None = None) -> int:
 
     args = p.parse_args(argv)
     common.check_account()
+    if args.cmd == "preflight":
+        return preflight.run(args.env, args.json)
     return {"status": cmd_status, "config": cmd_config, "demo": cmd_demo, "deploy": cmd_deploy, "snapshot": cmd_snapshot}[args.cmd](args)
 
 
