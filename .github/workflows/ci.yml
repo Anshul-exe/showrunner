@@ -1,0 +1,165 @@
+# Checks on every PR and on main. No cloud access, no secrets, read-only token:
+# this job runs third-party code (pip packages, Terraform providers, linters), so it
+# gets nothing worth stealing (P7).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CHECKPOINT_DISABLE: "1" # no Terraform version check-in calls
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  terraform:
+    name: terraform fmt / validate / tflint
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            releases.hashicorp.com:443
+            registry.terraform.io:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.9
+          terraform_wrapper: false
+      - uses: terraform-linters/setup-tflint@6ffdbaa3be476b3431f7275c26966ef32ff60337 # v6.3.2
+        with:
+          tflint_version: v0.64.0
+      - name: fmt
+        run: terraform fmt -check -recursive -diff platform
+      - name: validate every root
+        run: |
+          for root in platform/bootstrap platform/shared platform/envs; do
+            echo "::group::$root"
+            terraform -chdir="$root" init -backend=false -input=false >/dev/null
+            terraform -chdir="$root" validate
+            echo "::endgroup::"
+          done
+      - name: tflint
+        env:
+          GITHUB_TOKEN: ${{ github.token }} # plugin download rate limit only
+        run: |
+          tflint --init --config "$PWD/.tflint.hcl"
+          tflint --recursive --config "$PWD/.tflint.hcl"
+
+  policy:
+    name: policy unit tests (conftest)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: tools/ci/install-tools.sh conftest
+      - run: conftest verify --policy platform/policy
+
+  python:
+    name: pytest
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.5
+          enable-cache: false
+      # --frozen: the lockfile (with hashes) is the only source of versions.
+      - run: uv sync --frozen
+      - run: uv run pytest
+      - name: Lambda zips build reproducibly
+        run: |
+          uv run python tools/build/package.py > first.txt
+          uv run python tools/build/package.py > second.txt
+          diff first.txt second.txt && cat first.txt
+
+  workflows:
+    name: zizmor (workflows) + checkov (Terraform)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            pypi.org:443
+            files.pythonhosted.org:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - name: zizmor (hash-locked)
+        run: |
+          uv venv /tmp/lint
+          uv pip install --python /tmp/lint --require-hashes -r tools/lint/requirements.txt
+          /tmp/lint/bin/zizmor --offline .github/workflows
+      - name: checkov (skips carry their reason inline)
+        run: /tmp/lint/bin/checkov -d platform --framework terraform --compact --quiet --skip-download
+
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - run: tools/ci/install-tools.sh gitleaks
+      - run: gitleaks git --redact --no-banner --exit-code 1 .

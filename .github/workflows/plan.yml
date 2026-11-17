@@ -1,0 +1,149 @@
+# terraform plan for the stacks a PR touches, posted as a PR comment.
+#
+# Role: showrunner-ci-plan (read-only; denied secrets and kms:Decrypt). Its trust
+# policy accepts only this repo, the pull_request event, and this workflow file.
+# Fork PRs never get an OIDC token from GitHub, and the `if` below skips them anyway.
+name: plan
+
+on:
+  pull_request:
+    paths:
+      - "platform/**"
+      - "tools/ci/**"
+      - ".github/workflows/plan.yml"
+
+permissions: {}
+
+concurrency:
+  group: plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  CHECKPOINT_DISABLE: "1"
+  TF_IN_AUTOMATION: "1"
+  AWS_REGION: us-east-1
+
+jobs:
+  stacks:
+    name: which stacks changed
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      matrix: ${{ steps.map.outputs.matrix }}
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: map
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          matrix=$(git diff --name-only "$BASE_SHA"...HEAD | python3 tools/ci/changed_stacks.py)
+          # Only dev and shared stacks exist in the core (BRIEF section 0).
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "$matrix" | python3 -m json.tool
+
+  plan:
+    name: plan ${{ matrix.stack.stack }}
+    needs: stacks
+    if: needs.stacks.outputs.matrix != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        stack: ${{ fromJSON(needs.stacks.outputs.matrix) }}
+    permissions:
+      contents: read
+      id-token: write # OIDC -> showrunner-ci-plan; no access keys anywhere
+      pull-requests: write # the plan comment
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            releases.hashicorp.com:443
+            registry.terraform.io:443
+            pypi.org:443
+            files.pythonhosted.org:443
+            sts.amazonaws.com:443
+            sts.us-east-1.amazonaws.com:443
+            iam.amazonaws.com:443
+            *.us-east-1.amazonaws.com:443
+            *.s3.us-east-1.amazonaws.com:443
+            *.s3.amazonaws.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/showrunner-ci-plan
+          aws-region: us-east-1
+          role-session-name: plan-pr-${{ github.event.pull_request.number }}
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.15.9
+          terraform_wrapper: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: 0.13.5
+          enable-cache: false
+      - run: tools/ci/install-tools.sh conftest
+      - name: plan
+        id: plan
+        env:
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          TF_VAR_alert_emails: ${{ secrets.ALERT_EMAILS_JSON }}
+          STACK: ${{ matrix.stack.stack }}
+        run: |
+          plan="$RUNNER_TEMP/stack.tfplan"
+          tools/tf.sh "$STACK" plan -input=false -lock-timeout=120s -out="$plan"
+          dir=$(python3 -c 'import json,os;print(json.loads(os.environ["SPEC"])["dir"])')
+          export TF_DATA_DIR="$PWD/.terraform-data/${STACK//\//_}"
+          # The JSON form holds variable values in clear: keep it on the runner only.
+          terraform -chdir="$dir" show -json "$plan" > "$RUNNER_TEMP/plan.json"
+          terraform -chdir="$dir" show -no-color "$plan" > "$RUNNER_TEMP/plan.txt"
+          if conftest test --no-color --policy platform/policy "$RUNNER_TEMP/plan.json"; then
+            echo "policy=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "policy=failed" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f "$RUNNER_TEMP/plan.json"
+        shell: bash
+        # SPEC is the matrix entry as JSON (dir + args), from changed_stacks.py
+        # (exported here so the run script never interpolates expressions).
+      - name: comment
+        if: always() && steps.plan.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          STACK: ${{ matrix.stack.stack }}
+          POLICY: ${{ steps.plan.outputs.policy }}
+        run: |
+          [[ -f "$RUNNER_TEMP/plan.txt" ]] || echo "plan failed: see the job log" > "$RUNNER_TEMP/plan.txt"
+          python3 tools/ci/plan_comment.py "$STACK" "${POLICY:-failed}" < "$RUNNER_TEMP/plan.txt" > "$RUNNER_TEMP/comment.md"
+          # One comment per stack, updated on each push (found by its marker).
+          id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+            | jq -r --arg m "<!-- sr-plan:$STACK -->" '.[] | select(.body | startswith($m)) | .id' | head -1)
+          if [[ -n "$id" ]]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/comment.md" >/dev/null
+          else
+            gh pr comment "$PR" --body-file "$RUNNER_TEMP/comment.md"
+          fi
+      - name: fail on policy violations
+        if: steps.plan.outputs.policy != 'ok'
+        run: exit 1
+    env:
+      SPEC: ${{ toJSON(matrix.stack) }}
