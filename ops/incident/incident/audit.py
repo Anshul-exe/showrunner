@@ -96,6 +96,41 @@ class Audit:
             pass
 
 
+# ---------------------------------------------------------------- demo windows
+# Chaos (S1 etc.) is injected by `sr`. Its deployments are mirrored here as
+# pk = "DEMO#<customer>#<env>", sk = deployment start (ISO), active = chaos not at
+# defaults, so problem management can tell test runs from real firings (18/11/2026:
+# "fired 5 times in 30 days" were all demo runs).
+DEMO_GRACE_S = 10 * 60  # an alarm can still fire this long after chaos is switched off
+
+
+def demo_rows(table, customer: str, env: str) -> list[dict]:
+    out, kwargs = [], {"KeyConditionExpression": Key("pk").eq(f"DEMO#{customer}#{env}")}
+    while True:
+        resp = table.query(**kwargs)
+        out += resp["Items"]
+        if "LastEvaluatedKey" not in resp:
+            return out
+        kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+
+
+def during_demo(t: datetime, rows: list[dict]) -> bool:
+    """Was chaos on at time t (or switched off less than DEMO_GRACE_S before)?"""
+    before = [r for r in rows if datetime.fromisoformat(r["sk"]) <= t]
+    if not before:
+        return False
+    last = max(before, key=lambda r: r["sk"])
+    if last["active"]:
+        return True
+    return (t - datetime.fromisoformat(last["sk"])).total_seconds() <= DEMO_GRACE_S
+
+
+def split_firings(times: list[datetime], rows: list[dict]) -> tuple[int, int]:
+    """(real, demo) alarm firings."""
+    demo = sum(1 for t in times if during_demo(t, rows))
+    return len(times) - demo, demo
+
+
 def elapsed(rows: list[dict], from_step: str, to_step: str) -> float | None:
     def at(step):
         r = next((r for r in sorted(rows, key=lambda r: r["sk"]) if r["step"] == step), None)

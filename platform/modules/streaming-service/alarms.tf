@@ -1,6 +1,10 @@
 # Alarms for this customer env. Each one names its runbook (ops/runbooks/<name>.md),
 # whose front matter lists the only actions the incident loop may propose for it.
-# All notify the env's on-call topic on ALARM and OK.
+# All notify the env's on-call topic on ALARM. Only prod also emails on OK (the alarm
+# cleared): in dev every demo run would otherwise send an email per alarm per
+# transition (18/11/2026: one S1 run sent several), and the incident issue already
+# records recovery. The incident loop doesn't use these actions at all: EventBridge
+# sees every state change.
 #
 # Readiness (P9): per-dependency alarms exist for every customer from day one. The
 # API-level alarm says *that* viewers are affected; the per-dependency ones say *where*.
@@ -8,6 +12,7 @@
 locals {
   alarm_topic = [local.shared.alerts_topic_arn]
   runbook     = trimsuffix(var.runbook_base_url, "/")
+  ok_topic    = local.env == "prod" ? local.alarm_topic : []
   dep_dims    = { customer = local.customer, env = local.env }
 }
 
@@ -25,7 +30,7 @@ resource "aws_cloudwatch_metric_alarm" "vendor_latency" {
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
   alarm_actions       = local.alarm_topic
-  ok_actions          = local.alarm_topic
+  ok_actions          = local.ok_topic
   tags                = { runbook = "vendor-latency", severity = "sev2" }
 }
 
@@ -38,7 +43,7 @@ resource "aws_cloudwatch_metric_alarm" "dependency_errors" {
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
   alarm_actions       = local.alarm_topic
-  ok_actions          = local.alarm_topic
+  ok_actions          = local.ok_topic
   tags                = { runbook = "dependency-errors", severity = "sev2" }
 
   metric_query {
@@ -77,6 +82,6 @@ resource "aws_cloudwatch_metric_alarm" "api_latency" {
   comparison_operator = "GreaterThanThreshold"
   treat_missing_data  = "notBreaching"
   alarm_actions       = local.alarm_topic
-  ok_actions          = local.alarm_topic
+  ok_actions          = local.ok_topic
   tags                = { runbook = "api-latency", severity = "sev3" }
 }

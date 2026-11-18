@@ -12,6 +12,14 @@ from typing import Any
 
 DEP_COMPONENTS = ("vendor-recs", "valkey", "dynamodb")
 COMPONENTS = (*DEP_COMPONENTS, "config-change", "lambda", "network", "unknown")
+# The model may not use "unknown" (a catch-all that padded issue #6's list); only the
+# deterministic fallback says "unknown", and only as its sole answer ("nothing points").
+MODEL_COMPONENTS = tuple(c for c in COMPONENTS if c != "unknown")
+MAX_CITES = 4  # a hypothesis citing more is a catch-all ("everything else"), not a lead
+CHECKABLE = (*DEP_COMPONENTS, "config-change")
+# Evidence that shows the symptom, not a cause: a hypothesis citing only these has no
+# lead of its own (issue #6 re-run: `lambda` citing only the alarm and the API p95).
+SYMPTOM_KINDS = ("alarm", "api_latency")
 ELEVATED_RATIO = 2.0
 ELEVATED_DELTA_MS = 100.0
 ERRORS_ELEVATED = 5
@@ -121,11 +129,16 @@ def sanitize_hypotheses(raw: list[dict], evidence: list[dict], actions: list[dic
     for h in raw:
         if len(out) == 3:
             break
-        if not isinstance(h, dict) or h.get("component") not in COMPONENTS:
+        if not isinstance(h, dict) or h.get("component") not in MODEL_COMPONENTS:
             continue
-        cites = [c for c in h.get("cites", []) if c in ids]
-        if not cites:
-            continue  # an uncited claim is dropped, not shown
+        if any(o["component"] == h["component"] for o in out):
+            continue  # one hypothesis per component
+        cites = list(dict.fromkeys(c for c in h.get("cites", []) if c in ids))
+        if not cites or len(cites) > MAX_CITES:
+            continue  # uncited, or citing everything: dropped, not shown
+        kinds = {e["id"]: e.get("kind") for e in evidence}
+        if all(kinds.get(c) in SYMPTOM_KINDS for c in cites):
+            continue  # only the symptom cited: no evidence points to this component
         action = h.get("action")
         if action not in allowed or allowed[action].get("applies_to") != h["component"]:
             action = None
@@ -203,6 +216,8 @@ def checks_for(component: str, evidence: list[dict]) -> list[dict]:
 
 def verdict_from(checks: list[dict]) -> str:
     results = [c["result"] for c in checks]
+    if [c["name"] for c in checks] == ["no-deterministic-check"]:
+        return "not-checkable"  # shown for a human, never decided by the model, never acted on
     if "fail" in results:
         return "refuted"
     if results and all(r == "pass" for r in results):
@@ -236,7 +251,7 @@ def merge_model_verdicts(result: dict[str, Any], model: list[dict]) -> dict[str,
         if not m:
             continue
         v["explanation"] = str(m.get("explanation", ""))[:400]
-        if v["verdict"] == "inconclusive" and m.get("verdict") in ("confirmed", "refuted", "inconclusive"):
+        if v["verdict"] == "inconclusive" and m.get("verdict") in ("confirmed", "refuted", "inconclusive"):  # not not-checkable
             v["verdict"], v["decided_by"] = m["verdict"], "model"
     return result
 

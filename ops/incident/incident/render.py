@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 TOKEN_MARK = "sr-task-token"
-VERDICT = {"confirmed": "**CONFIRMED**", "refuted": "**REFUTED**", "inconclusive": "**inconclusive**"}
+VERDICT = {"confirmed": "**CONFIRMED**", "refuted": "**REFUTED**", "inconclusive": "**inconclusive**",
+           "not-checkable": "not checkable"}
 
 
 def clean(text: Any) -> str:
@@ -81,6 +82,11 @@ def analysis(evidence: list[dict], triage: dict, verification: dict, proposal: d
     verdicts = {v["hypothesis"]: v for v in verification["verdicts"]}
     for h in triage["hypotheses"]:
         v = verdicts[h["id"]]
+        if v["verdict"] == "not-checkable":  # one line: a lead for a human, nothing more
+            parts.append(f"**{h['id']} `{h['component']}`**: not checkable automatically (no check for "
+                         f"`{h['component']}`; never acted on): {clean(h['statement'])} ({', '.join(h['cites'])})")
+            parts.append("")
+            continue
         parts.append(f"**{h['id']} `{h['component']}`**: {VERDICT[v['verdict']]} (decided by {v['decided_by']})")
         parts.append(f"- {clean(h['statement'])} ({', '.join(h['cites'])})")
         if v.get("explanation"):
@@ -135,7 +141,25 @@ def _ts(row: dict) -> str:
     return row["sk"].split("#", 1)[0][11:19]
 
 
-def pir(alarm: dict, incident_id: str, rows: list[dict], alarm_count_30d: int) -> str:
+PROBLEM_THRESHOLD = 3  # real firings in 30 days
+
+
+def problem_line(alarm_name: str, real: int, demo: int) -> str:
+    total = real + demo
+    if total == 0:
+        return ""
+    demo_note = f", {demo} of them during `sr demo` chaos (not counted)" if demo else ""
+    if real >= PROBLEM_THRESHOLD:
+        return (f"\n\n**Problem management:** `{alarm_name}` fired {total} times in 30 days{demo_note}: "
+                f"{real} real, labelled `problem-management` for root-cause work.")
+    if demo:
+        return (f"\n\n**Problem management:** `{alarm_name}` fired {total} times in 30 days{demo_note}: "
+                f"{real} real, under the threshold of {PROBLEM_THRESHOLD}: not labelled.")
+    return ""
+
+
+def pir(alarm: dict, incident_id: str, rows: list[dict], firings: tuple[int, int]) -> str:
+    """firings = (real, demo) alarm firings in the last 30 days."""
     rows = sorted(rows, key=lambda r: r["sk"])
     alarm_t = datetime.fromisoformat(alarm["time"]).replace(tzinfo=timezone.utc)  # CloudWatch: UTC
 
@@ -171,8 +195,7 @@ def pir(alarm: dict, incident_id: str, rows: list[dict], alarm_count_30d: int) -
     changed = (f"`{act_out.get('profile')}`: `{json.dumps(act_out.get('before'))}` -> `{json.dumps(act_out.get('after'))}` "
                f"(AppConfig deployment #{act_out.get('deployment')}, live in {act_out.get('seconds')} s)"
                if act_out else "nothing")
-    problem = (f"\n\n**Problem management:** `{alarm['name']}` fired {alarm_count_30d} times in 30 days: "
-               "labelled `problem-management` for root-cause work." if alarm_count_30d >= 3 else "")
+    problem = problem_line(alarm["name"], *firings)
     return f"""## Post-incident review (draft, from the audit trail)
 
 **Incident** `{incident_id}` · alarm -> issue {after_alarm('open')} · alarm -> proposal {after_alarm('propose')} · alarm -> mitigation {after_alarm('act')} · alarm -> recovered {after_alarm('check')}

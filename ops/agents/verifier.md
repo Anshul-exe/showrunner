@@ -39,6 +39,9 @@ latency actually point at that component (now vs baseline)? Is the scale right (
 answering in microseconds can't cause second-long requests)? Was there a config change or
 deploy in the window? You get those results.
 
+You only get hypotheses that a check can test; the others are shown to humans as "not
+checkable" without a verdict.
+
 For each hypothesis (H1, H2, ...):
 - If the checks are conclusive, keep their verdict and explain it in one or two
   sentences, quoting the numbers and citing evidence IDs.

@@ -57,6 +57,8 @@ def test_loop_without_a_model_still_reaches_the_right_proposal_and_acts_only_on_
     rows = {r["step"]: r for r in audit.Audit(table).rows("inc-1")}
     assert set(rows) == {"triage", "verify", "act"}
     assert len(rows["triage"]["instruction_sha256"]) == 64 and rows["act"]["approver"] == "maintainer"
+    # why the verifier didn't use the model is on the record (missing on 18/11/2026)
+    assert "(model not used: " in rows["verify"]["detail"] and "Operation not allowed" in rows["verify"]["detail"]
 
 
 def test_act_refuses_anything_but_the_approved_proposal(env):

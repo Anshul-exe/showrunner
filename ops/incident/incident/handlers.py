@@ -23,6 +23,7 @@ import boto3
 from opslib import appconfig_change, runbooks
 
 from . import agents, analysis, evidence, render
+from . import audit as audit_mod
 from .audit import Audit
 
 RUNBOOKS_DIR = agents.bundled("runbooks")
@@ -123,10 +124,12 @@ def github(event: dict, _ctx=None) -> dict:
         hist = _client("cloudwatch").describe_alarm_history(
             AlarmName=alarm["name"], HistoryItemType="StateUpdate", MaxRecords=100,
             StartDate=datetime.now(timezone.utc).replace(microsecond=0) - timedelta(days=30))
-        fired = sum(1 for h in hist["AlarmHistoryItems"] if "to ALARM" in h.get("HistorySummary", ""))
-        audit.record(inc["id"], "pir", detail="post-incident review posted; issue closed", duration_ms=_ms(t0))
-        gh.comment(inc["issue"], render.pir(alarm, inc["id"], audit.rows(inc["id"]), fired))
-        if fired >= 3:
+        times = [h["Timestamp"] for h in hist["AlarmHistoryItems"] if "to ALARM" in h.get("HistorySummary", "")]
+        real, demo = audit_mod.split_firings(times, audit_mod.demo_rows(audit.t, alarm["customer"], alarm["env"]))
+        audit.record(inc["id"], "pir", detail=f"post-incident review posted; issue closed; firings in 30 d: "
+                     f"{real} real, {demo} demo", duration_ms=_ms(t0))
+        gh.comment(inc["issue"], render.pir(alarm, inc["id"], audit.rows(inc["id"]), (real, demo)))
+        if real >= render.PROBLEM_THRESHOLD:
             gh.add_labels(inc["issue"], ["problem-management"])
         gh.close(inc["issue"])
         audit.close(alarm["customer"], alarm["env"], inc["id"])
@@ -221,9 +224,12 @@ def verify_fn(event: dict, _ctx=None) -> dict:
     doc = agents.load("verifier")
     usage = {"model": None, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "mode": "deterministic"}
     try:
-        payload = {"evidence": [{k: e[k] for k in ("id", "summary")} for e in ev], "hypotheses": hyps,
+        # Hypotheses no check can test aren't sent: the model would only guess at them.
+        checkable = {v["hypothesis"] for v in result["verdicts"] if v["verdict"] != "not-checkable"}
+        payload = {"evidence": [{k: e[k] for k in ("id", "summary")} for e in ev],
+                   "hypotheses": [h for h in hyps if h["id"] in checkable],
                    "checks": [{"hypothesis": v["hypothesis"], "verdict": v["verdict"], "checks": v["checks"]}
-                              for v in result["verdicts"]]}
+                              for v in result["verdicts"] if v["hypothesis"] in checkable]}
         res = agents.run(_client("bedrock-runtime"), doc, payload)
         result = analysis.merge_model_verdicts(result, res.output["verdicts"])
         usage = {"model": doc.meta["model"], "input_tokens": res.input_tokens, "output_tokens": res.output_tokens,
@@ -237,8 +243,9 @@ def verify_fn(event: dict, _ctx=None) -> dict:
     _audit().record(inc["id"], "verify", agent="verifier", instruction_sha256=doc.sha256, model=usage["model"],
                     input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"], cost_usd=usage["cost_usd"],
                     evidence_ids=sorted({c for v in result["verdicts"] for ch in v["checks"] for c in ch["cites"]}),
-                    detail=f"{usage['mode']}: {summary}; proposal: {proposal['action_id'] if proposal else 'none'}",
-                    output=result, duration_ms=_ms(t0))
+                    detail=f"{usage['mode']}: {summary}; proposal: {proposal['action_id'] if proposal else 'none'}"
+                           + (f" (model not used: {usage['reason'][:120]})" if usage.get("reason") else ""),
+                    output={**result, "model_reason": usage.get("reason")}, duration_ms=_ms(t0))
     return {**state, "verification": result, "proposal": proposal}
 
 

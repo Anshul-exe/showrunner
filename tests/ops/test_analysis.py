@@ -31,11 +31,44 @@ def test_a_model_blaming_the_cache_is_refuted_whatever_it_says():
 
 
 def test_model_decides_only_inconclusive_verdicts():
-    hyps = analysis.number([{"component": "network", "statement": "NAT.", "cites": ["E2"], "action": None}])
-    result = analysis.verify(hyps, s1())
-    assert result["verdicts"][0]["verdict"] == "inconclusive"
+    result = {"verdicts": [{"hypothesis": "H1", "verdict": "inconclusive", "checks": [], "explanation": "",
+                            "decided_by": "checks"}]}
     merged = analysis.merge_model_verdicts(result, [{"hypothesis": "H1", "verdict": "refuted", "explanation": "flat"}])
     assert merged["verdicts"][0] == {**merged["verdicts"][0], "verdict": "refuted", "decided_by": "model", "explanation": "flat"}
+
+
+def test_a_hypothesis_no_check_can_test_is_not_checkable_and_stays_so():
+    """Issue #6: H2 `lambda` and H3 `unknown` came back 'inconclusive (decided by model)'."""
+    hyps = analysis.number([{"component": "lambda", "statement": "Cold starts.", "cites": ["E2"], "action": None}])
+    result = analysis.verify(hyps, s1())
+    assert result["verdicts"][0]["verdict"] == "not-checkable"
+    merged = analysis.merge_model_verdicts(result, [{"hypothesis": "H1", "verdict": "confirmed", "explanation": "x"}])
+    assert merged["verdicts"][0]["verdict"] == "not-checkable"
+    assert analysis.choose_action(hyps, merged, ACTIONS) is None
+
+
+def test_model_padding_is_dropped():
+    """Issue #6's triage output, as the model returned it."""
+    ev = s1()
+    ids = [e["id"] for e in ev]
+    raw = [
+        {"component": "vendor-recs", "statement": "Vendor slow.", "cites": ["E1", "E5"], "action": "vendor-fallback-on"},
+        {"component": "lambda", "statement": "Cold starts.", "cites": ["E2"], "action": None},
+        {"component": "unknown", "statement": "Unknown issue.", "cites": ids[2:], "action": None},
+        {"component": "dynamodb", "statement": "Everything.", "cites": ids, "action": None},
+        {"component": "vendor-recs", "statement": "Again.", "cites": ["E5"], "action": None},
+    ]
+    kept = analysis.sanitize_hypotheses(raw, ev, ACTIONS)
+    # vendor kept; lambda cites only the API p95 (a symptom); unknown and cite-everything dropped
+    assert [h["component"] for h in kept] == ["vendor-recs"]
+
+
+def test_symptom_only_hypothesis_is_dropped_but_symptom_plus_lead_is_kept():
+    ev = s1()
+    only_symptom = [{"component": "lambda", "statement": "x", "cites": ["E1", "E2"], "action": None}]
+    assert analysis.sanitize_hypotheses(only_symptom, ev, ACTIONS) == []
+    with_lead = [{"component": "vendor-recs", "statement": "x", "cites": ["E1", "E2", "E5"], "action": None}]
+    assert len(analysis.sanitize_hypotheses(with_lead, ev, ACTIONS)) == 1
 
 
 def test_action_only_for_confirmed_hypothesis_with_matching_component():

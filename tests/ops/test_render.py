@@ -43,7 +43,7 @@ def test_pir_timings_from_audit_rows():
             row("22:23:00.000", "act", detail="deployment #8", approver="maintainer",
                 output='{"profile": "flags", "before": {"vendor_fallback": false}, "after": {"vendor_fallback": true}, "deployment": 8, "seconds": 9.0}'),
             row("22:25:00.000", "check", detail="recovered")]
-    md = render.pir(ALARM, "acme-tv-dev-x", rows, alarm_count_30d=3)
+    md = render.pir(ALARM, "acme-tv-dev-x", rows, (3, 0))
     assert "alarm -> issue 11 s" in md and "alarm -> mitigation 171 s" in md and "alarm -> recovered 291 s" in md
     assert "approver: maintainer" in md and "problem-management" in md
     assert datetime(2026, 11, 17, tzinfo=timezone.utc)  # dates are UTC throughout

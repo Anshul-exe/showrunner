@@ -21,3 +21,16 @@ propose anything else, and every action still needs a human `/approve`.
 | [vendor-latency](vendor-latency.md) | vendor recommendations p95 |
 | [dependency-errors](dependency-errors.md) | errors from Valkey, DynamoDB or the vendor |
 | [api-latency](api-latency.md) | API p95 (what viewers feel) |
+
+## Who gets told what
+
+| | dev | prod |
+|---|---|---|
+| alarm enters ALARM | email (SNS) + the incident issue | email (SNS) + the incident issue |
+| alarm returns to OK | the incident issue only (recovery check, post-incident review) | email too: on-call needs to know it cleared, maybe before the loop's check |
+| incident loop | starts on ALARM via EventBridge (independent of the email actions) | same |
+
+Why no OK email in dev (since 18/11/2026): one S1 run sent an email per alarm per
+transition, which teaches people to ignore the inbox. The issue already says when the
+service recovered. GitHub's own emails for the issue follow each person's notification
+settings (watch the repo with "Issues" off, or filter on the `incident` label).

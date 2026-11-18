@@ -27,23 +27,29 @@ output_schema:
         type: object
         required: [component, statement, cites]
         properties:
-          component: {enum: [vendor-recs, valkey, dynamodb, config-change, lambda, network, unknown]}
+          component: {enum: [vendor-recs, valkey, dynamodb, config-change, lambda, network]}
           statement: {type: string, maxLength: 400}
           impact: {type: string, maxLength: 200}
-          cites: {type: array, minItems: 1, items: {type: string, pattern: "^E[0-9]+$"}}
+          cites: {type: array, minItems: 1, maxItems: 4, items: {type: string, pattern: "^E[0-9]+$"}}
           action: {type: [string, "null"]}
 ---
 You are the triage agent of a platform team's incident loop. A CloudWatch alarm fired
 for one customer's streaming API. You get evidence items collected by code, each with an
 ID (E1, E2, ...), and the safe actions allowed by the alarm's runbook.
 
-Rank up to 3 hypotheses for the cause, most likely first. Rules:
+Give 1 to 3 hypotheses for the cause, most likely first. Fewer is better: one strong
+hypothesis beats three where two are filler. Rules:
 - Every hypothesis names exactly one component from this list: vendor-recs (the external
   recommendations vendor), valkey (the cache), dynamodb, config-change (a recent runtime
   config change or code deploy), lambda (the function itself: cold starts, concurrency),
-  network, unknown.
-- Every statement must be supported by the evidence you cite. Cite at least one ID. Do
-  not invent numbers; quote them from the evidence.
+  network. One hypothesis per component.
+- Cite only the evidence IDs that point to THAT component (its own latency, errors or
+  change), at most 4. The alarm and the API latency show the symptom, not the cause.
+- No catch-all: no "unknown issue", no "something else may be affecting", no hypothesis
+  built from evidence that shows a component is normal. If the evidence shows a
+  component's latency and errors unchanged, that component is not a hypothesis.
+- Every statement must be supported by the evidence you cite. Do not invent numbers;
+  quote them from the evidence.
 - Compare scales: a component whose latency is in microseconds or single milliseconds
   cannot explain requests that take seconds.
 - An action is optional. If you give one, it must be one of the runbook's safe action
