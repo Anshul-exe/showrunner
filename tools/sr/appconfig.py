@@ -40,4 +40,10 @@ def wait_idle(customer: str, env: str, timeout_s: int = 180) -> None:
 
 def set_keys(customer: str, env: str, profile: str, changes: dict[str, Any], description: str) -> dict:
     result = change.set_keys(client("appconfig"), target(customer, env), profile, changes, description, on_wait=_progress)
+    import undo  # if this change undid an incident's mitigation, say so on the incident
+
+    undo.after_change(customer, env, result, DEFAULTS[profile], description)
+    import demo_windows  # chaos changes are demo windows for problem management
+
+    demo_windows.after_change(customer, env, profile)
     return {"customer": customer, **result}

@@ -8,6 +8,7 @@ vendor-mock instance per recommendation request, so the rate stays low and cappe
 from __future__ import annotations
 
 import random
+import signal
 import statistics
 import threading
 import time
@@ -38,7 +39,25 @@ def pick_path(rng: random.Random) -> str:
     return template.format(id=rng.choice(TITLES), term=rng.choice(TERMS))
 
 
-def run(customers: list[str], env: str, minutes: float, rps: float) -> None:
+def classify(exc: BaseException | None, status: int | None) -> str:
+    """ok / throttled (429: API Gateway or Lambda concurrency) / 5xx / 4xx / network."""
+    if exc is None:
+        return "ok"
+    if status == 429:
+        return "throttled"
+    if status is not None:
+        return "5xx" if status >= 500 else "4xx"
+    return "network"
+
+
+def stop_message(reason: str, started: float, sent: int, totals: dict[str, int]) -> str:
+    """The last line: why it stopped, so an early stop is never silent (18/11/2026)."""
+    mins = (time.time() - started) / 60
+    parts = ", ".join(f"{k}={v}" for k, v in totals.items() if v)
+    return f"traffic stopped: {reason} after {mins:.1f} min; {sent} requests sent ({parts or 'no responses'})"
+
+
+def run(customers: list[str], env: str, minutes: float, rps: float) -> str:
     cap = max_rps()
     if rps > cap:
         print(f"capping {rps} rps to {cap}: Lambda concurrency quota is small (Little's law)")
@@ -48,41 +67,72 @@ def run(customers: list[str], env: str, minutes: float, rps: float) -> None:
     lock = threading.Lock()
     stats: dict[str, list] = {c: [] for c in customers}
     errors: dict[str, int] = {c: 0 for c in customers}
+    totals = {"ok": 0, "throttled": 0, "5xx": 0, "4xx": 0, "network": 0}
+    stop = {"reason": None}
 
     def hit(customer: str, path: str) -> None:
         start = time.perf_counter()
-        ok = True
+        exc, status = None, None
         try:
             with urllib.request.urlopen(urls[customer] + path, timeout=15) as r:  # noqa: S310
                 r.read()
-        except (urllib.error.URLError, TimeoutError, OSError):
-            ok = False
+        except urllib.error.HTTPError as e:
+            exc, status = e, e.code
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            exc = e
         elapsed = time.perf_counter() - start
+        kind = classify(exc, status)
         with lock:
             stats[customer].append(elapsed)
-            if not ok:
+            totals[kind] += 1
+            if kind != "ok":
                 errors[customer] += 1
 
-    end = time.time() + minutes * 60
+    # A closed terminal (SIGHUP) or `kill` (SIGTERM) used to end the run with no message.
+    def on_signal(signum, _frame):
+        stop["reason"] = f"signal {signal.Signals(signum).name}"
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, on_signal)
+
+    started = time.time()
+    end = started + minutes * 60
     interval = 1.0 / rps
-    next_report = time.time() + 15
-    print(f"traffic: {rps} rps across {', '.join(customers)} for {minutes} min (Ctrl-C to stop)")
-    with ThreadPoolExecutor(max_workers=16) as pool:
+    next_report = started + 15
+    sent = 0
+    print(f"traffic: {rps} rps across {', '.join(customers)} for {minutes} min (Ctrl-C to stop)", flush=True)
+    pool = ThreadPoolExecutor(max_workers=16)
+    try:
+        while stop["reason"] is None:
+            if time.time() >= end:
+                stop["reason"] = f"--minutes {minutes:g} reached"
+                break
+            pool.submit(hit, rng.choice(customers), pick_path(rng))
+            sent += 1
+            time.sleep(interval)
+            if time.time() >= next_report:
+                next_report += 15
+                with lock:
+                    line = []
+                    for c in customers:
+                        s = sorted(stats[c])
+                        if s:
+                            p95 = s[min(len(s) - 1, int(len(s) * 0.95))]
+                            line.append(f"{c}: n={len(s)} err={errors[c]} median={statistics.median(s):.2f}s p95={p95:.2f}s")
+                        stats[c].clear()
+                        errors[c] = 0
+                    throttled = totals["throttled"]
+                left = max(0.0, end - time.time()) / 60
+                print(time.strftime("%H:%M:%S"), f"[{left:.1f} min left]", " | ".join(line),
+                      f"(client side, incl. internet RTT; throttled so far: {throttled})", flush=True)
+    except KeyboardInterrupt:
+        stop["reason"] = "Ctrl-C"
+    except Exception as exc:  # anything unexpected: say what, don't just vanish
+        stop["reason"] = f"error {type(exc).__name__}: {exc}"
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+        msg = stop_message(stop["reason"] or "unknown", started, sent, totals)
         try:
-            while time.time() < end:
-                pool.submit(hit, rng.choice(customers), pick_path(rng))
-                time.sleep(interval)
-                if time.time() >= next_report:
-                    next_report += 15
-                    with lock:
-                        line = []
-                        for c in customers:
-                            s = sorted(stats[c])
-                            if s:
-                                p95 = s[min(len(s) - 1, int(len(s) * 0.95))]
-                                line.append(f"{c}: n={len(s)} err={errors[c]} median={statistics.median(s):.2f}s p95={p95:.2f}s")
-                            stats[c].clear()
-                            errors[c] = 0
-                    print(time.strftime("%H:%M:%S"), " | ".join(line), "(client side, incl. internet RTT)", flush=True)
-        except KeyboardInterrupt:
-            print("stopping")
+            print(msg, flush=True)
+        except OSError:
+            pass  # the terminal is gone (SIGHUP); nothing to print to
+    return msg

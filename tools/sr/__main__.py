@@ -9,6 +9,8 @@
     ./sr demo s1 start|stop
     ./sr demo reset                   every customer's flags + chaos back to defaults
     ./sr deploy <catalog-api|vendor-mock|incident>
+    ./sr incident undo-check <customer>   record an undone mitigation on its incident
+    ./sr incident sync-demo <customer|all> mirror chaos history as demo windows (problem mgmt)
     ./sr snapshot --since 22:00 --until 22:20 --out docs/demo/s1   (UTC, today)
 
 Uses the `showrunner` AWS profile (pinned in .claude/settings.json) and refuses to run
@@ -90,6 +92,18 @@ def cmd_snapshot(args) -> int:
     return 0
 
 
+def cmd_incident(args) -> int:
+    import undo
+
+    if args.what == "sync-demo":
+        import demo_windows
+
+        for c in common.customers(args.env) if args.customer == "all" else [args.customer]:
+            print(f"{c}: {demo_windows.sync(c, args.env)} chaos deployments mirrored as demo windows")
+        return 0
+    return undo.check(args.customer, args.env, appconfig.target(args.customer, args.env), "flags", appconfig.DEFAULTS["flags"])
+
+
 def cmd_deploy(args) -> int:
     return deploy.deploy(args.service, args.env)
 
@@ -121,6 +135,10 @@ def main(argv: list[str] | None = None) -> int:
     dp = sub.add_parser("deploy", help="ship app code (lane 2): new version, alias live")
     dp.add_argument("service", choices=["catalog-api", "vendor-mock", "incident"])
 
+    ip = sub.add_parser("incident", help="incident records kept by the operator")
+    ip.add_argument("what", choices=["undo-check", "sync-demo"])
+    ip.add_argument("customer", help="a customer, or `all` (sync-demo)")
+
     sp = sub.add_parser("snapshot", help="render dashboard widgets to PNG for a time window (UTC)")
     sp.add_argument("--since", required=True, help="HH:MM today or ISO time, UTC")
     sp.add_argument("--until", required=True)
@@ -131,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
     common.check_account()
     if args.cmd == "preflight":
         return preflight.run(args.env, args.json)
-    return {"status": cmd_status, "config": cmd_config, "demo": cmd_demo, "deploy": cmd_deploy, "snapshot": cmd_snapshot}[args.cmd](args)
+    return {"status": cmd_status, "config": cmd_config, "demo": cmd_demo, "deploy": cmd_deploy, "snapshot": cmd_snapshot,
+            "incident": cmd_incident}[args.cmd](args)
 
 
 if __name__ == "__main__":
