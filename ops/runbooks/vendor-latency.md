@@ -29,6 +29,9 @@ concurrency rise, and so do Valkey's client connections. The service-level dashb
 then *looks* like a cache problem. Check Valkey's own server-side latency: it's in
 microseconds. A cache that answers in microseconds can't cause second-long requests.
 
+**When it fires.** Vendor p95 above the threshold in 2 of 3 one-minute periods,
+counting only minutes with at least 5 vendor calls (the same floor as api-latency).
+
 ## Diagnose (5 minutes)
 
 1. Dashboard `sr-<env>-operations`, right half: "Dependency latency p95 by customer".

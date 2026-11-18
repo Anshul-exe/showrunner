@@ -70,3 +70,27 @@ test_alarm_without_runbook_tag_or_link if {
 test_stacks_without_a_service_need_no_service_alarms if {
 	count(readiness_denies(plan([]))) == 0
 }
+
+# 19/11/2026: latency alarms are metric math (p95 only in minutes with enough calls).
+vendor_latency_math := alarm("vendor_latency", {
+	"alarm_description": "Vendor p95. Runbook: https://x/vendor-latency.md",
+	"tags": {"runbook": "vendor-latency"},
+	"metric_query": [
+		{"id": "p95_enough", "expression": "IF(calls >= 10, p95, 0)", "metric": []},
+		{"id": "p95", "metric": [{"namespace": "Showrunner", "metric_name": "DependencyLatency",
+			"dimensions": {"dependency": "vendor-recs"}}]},
+	],
+})
+
+api_latency_math := alarm("api_latency", {
+	"alarm_description": "API p95. Runbook: https://x/api-latency.md",
+	"tags": {"runbook": "api-latency"},
+	"metric_query": [
+		{"id": "p95_enough", "expression": "IF(requests >= 10, p95, 0)", "metric": []},
+		{"id": "p95", "metric": [{"namespace": "AWS/ApiGateway", "metric_name": "Latency", "dimensions": {"ApiId": "a"}}]},
+	],
+})
+
+test_metric_math_latency_alarms_count if {
+	count(readiness_denies(plan([fn, vendor_latency_math, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency_math]))) == 0
+}

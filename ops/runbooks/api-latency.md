@@ -22,6 +22,19 @@ safe_actions:
 **What it means.** The customer's API p95 is above the threshold. This alarm says
 *that* viewers are affected, not *why*. Never act on it alone: find the dependency.
 
+**When it fires.** p95 above the threshold in 2 of 3 one-minute periods, counting only
+minutes with at least 5 requests (`min_samples_pm`). A p95 over one or two requests
+is a cold start, not what viewers feel: on 18/11/2026 two cold requests after a deploy
+(a preflight call and a smoke test) fired this alarm for all three dev customers and
+the loop proposed a vendor workaround for a cold start. Since then quiet minutes count
+as not breaching. Errors still alarm on their own (`dependency-errors`), whatever the
+traffic.
+
+**First question after a deploy.** If `deploys` in the evidence shows a version
+published minutes before the alarm, suspect the deploy (cold starts, a slower code
+path) before any dependency. Roll back with the alias (`rollback:` in the deploy
+output) rather than switching a dependency off.
+
 ## Diagnose
 
 1. Dashboard right half: which dependency's p95 moved at the same time?

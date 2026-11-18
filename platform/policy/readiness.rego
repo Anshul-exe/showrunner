@@ -97,3 +97,11 @@ api_latency_alarm if {
 	a.values.namespace == "AWS/ApiGateway"
 	a.values.metric_name == "Latency"
 }
+
+api_latency_alarm if { # metric math, e.g. p95 only in minutes with enough requests
+	some a in alarms
+	some q in a.values.metric_query
+	some m in q.metric
+	m.namespace == "AWS/ApiGateway"
+	m.metric_name == "Latency"
+}

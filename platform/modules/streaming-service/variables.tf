@@ -54,6 +54,7 @@ variable "thresholds" {
     vendor_p95_ms        = optional(number, 1000)
     api_p95_ms           = optional(number, 1000)
     dependency_errors_pm = optional(number, 5)
+    min_samples_pm       = optional(number, 5) # latency alarms ignore quieter minutes (S1 traffic: 11-22 vendor calls/min)
   })
   default = {}
 }
