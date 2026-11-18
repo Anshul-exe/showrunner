@@ -21,3 +21,20 @@ remote state, so the customer role never needs read access to shared's state.
 
 **Why one state per customer:** a change to acme-tv can't touch nordic-sports, plans
 stay small (~22 s), and the blast radius of a bad apply is one customer.
+
+## Customer page (`features.customer_page`, tier 2; off by default)
+
+`site.tf` + `site/`: a private S3 bucket behind one CloudFront distribution.
+`/*` serves the page (S3 via Origin Access Control: only this distribution can read the
+bucket); `/api/*` goes to the customer's HTTP API with `/api` stripped by a CloudFront
+Function and caching disabled, so the page shows live latency and which source served
+the recommendations (`vendor`, or `fallback` during S1). Strict CSP (`'self'` only),
+HSTS, `nosniff`, `DENY` framing. Page files carry `max-age=300`, so a change shows
+within 5 minutes without an invalidation.
+
+**Why CloudFront in front of the API too:** one origin for the page and its API (no
+CORS), and the viewer's path is the real one: edge -> API -> Lambda -> dependencies.
+
+**Status (18/11/2026):** planned and policy-checked (16 resources, conftest + checkov
+pass); the first apply was refused because new accounts must be verified before
+creating CloudFront resources (a support case). Turned back off until then.

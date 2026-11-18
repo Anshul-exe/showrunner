@@ -23,7 +23,7 @@ repo's Issues filtered by `label:incident`, and PR #3 (plan comments).
 | 0:00 | Frame | README: the four bullets, the diagram, the measured timings | - |
 | 1:00 | Start S1 | `./sr demo s1 start`: "the vendor gets 1.5 s slower for acme-tv; this pages in ~1-2 minutes" | [S1 recording](demo/S1.md) |
 | 1:30 | Self-service | `platform/customers/acme-tv/dev.yaml` -> one module; a PR's plan comment per stack with policy checks | PR #3 comments |
-| 3:00 | Supply chain | **not built yet** (next on the list): the evil-dependency PR. Meanwhile: `ci.yml` (no cloud access, egress block, pinned actions), OIDC trust per workflow (ADR 0009) | - |
+| 3:00 | Supply chain | PR #4: a "routine" dependency whose postinstall hunts for credentials; the `supply-chain` check: scripts off, then run on purpose: finds nothing, harden-runner blocks `exfil.example.com` | [recording](demo/supply-chain.md) |
 | 4:30 | Incident | the issue: evidence table, H1 vendor confirmed, **the cache refuted with Valkey's µs**, A1 with the exact diff, blast radius and rollback; comment `/approve A1`; `./sr demo watch` p95 falls with no deploy; the audit rows | issue #2 (17/11/2026 run), [S1 recording](demo/S1.md) |
 | 8:00 | Roadmap | [ROADMAP.md](ROADMAP.md): tiers 2-3 against the three six-month goals | - |
 

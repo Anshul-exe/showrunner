@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Streaming</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <h1 id="brand">Streaming</h1>
+    <form id="search" role="search">
+      <input id="q" type="search" placeholder="Search titles" aria-label="Search titles" autocomplete="off">
+    </form>
+  </header>
+
+  <main>
+    <section id="player" hidden>
+      <div class="screen" role="img" aria-label="Player">
+        <span class="play" aria-hidden="true">&#9654;</span>
+        <p class="note">Demo player: no media is streamed.</p>
+      </div>
+      <div class="meta">
+        <h2 id="title-name"></h2>
+        <p id="title-info"></p>
+        <h3>Because you watched this <span id="recs-source" class="badge"></span></h3>
+        <ul id="recs" class="row"></ul>
+        <button id="back" type="button">&larr; All titles</button>
+      </div>
+    </section>
+
+    <section id="browse">
+      <h2 id="list-heading">All titles</h2>
+      <ul id="titles" class="grid"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <span id="env"></span>
+    <span>last API call: <strong id="latency">-</strong></span>
+    <span id="status" role="status"></span>
+  </footer>
+</body>
+</html>

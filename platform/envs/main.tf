@@ -22,3 +22,8 @@ output "function_name" {
   description = "catalog-api function."
   value       = module.service.function_name
 }
+
+output "site_url" {
+  description = "Customer page, if features.customer_page is on."
+  value       = module.service.site_url
+}

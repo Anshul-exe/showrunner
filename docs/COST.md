@@ -29,6 +29,8 @@ except where marked.
 | DynamoDB on-demand | $0.625 per million writes, $0.125 per million reads |
 | Bedrock Amazon Nova Lite (on-demand) | $0.00006 / 1K input tokens, $0.00024 / 1K output tokens |
 | EventBridge, AWS service events on the default bus | free |
+| CloudFront pay-as-you-go (tier 2 page) | always free: 1 TB out, 10M HTTPS requests, 2M CloudFront Functions per month; then $0.085/GB and $0.0100 per 10,000 HTTPS requests (North America); no per-distribution fee |
+| S3 Standard (page files, a few KB) | ~$0.023/GB-month: effectively $0 |
 
 ## The core, running all month (tier 1)
 

@@ -96,10 +96,13 @@ detection. Details: [docs/COST.md](docs/COST.md).
 Built (the 2-day core): two customers on `dev`, per-dependency metrics and alarms,
 runbooks, the three change lanes, scenario S1 with a recorded fallback
 ([docs/demo/S1.md](docs/demo/S1.md)), the incident loop up to the approval, CI/CD with
-plan comments, `sr preflight`.
+plan comments, `sr preflight`, the supply-chain demo (PR #4: a malicious dependency finds
+nothing and its call home is blocked, [record](docs/demo/supply-chain.md)), and the
+incident run record ([docs/demo/incident.md](docs/demo/incident.md)).
 
 **Not built yet** (in order, [docs/ROADMAP.md](docs/ROADMAP.md)): customer pages on
-CloudFront, the self-service readiness gate, PR review agents, network case files
+CloudFront (code and tests done; waiting for AWS to verify the new account for
+CloudFront), the self-service readiness gate, PR review agents, network case files
 (S3/S4), canary deploys and container images with provenance, then prod, SLO burn-rate
 alarms, load tests that find the breaking point, cost reports and an MCP server.
 

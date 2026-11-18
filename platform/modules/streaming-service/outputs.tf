@@ -17,9 +17,13 @@ locals {
   }
 }
 
+locals {
+  published_site = local.site_enabled ? { site_url = "https://${aws_cloudfront_distribution.site[0].domain_name}" } : {}
+}
+
 resource "aws_ssm_parameter" "published" {
   #checkov:skip=CKV2_AWS_34:Non-secret names and IDs
-  for_each = local.published
+  for_each = merge(local.published, local.published_site)
 
   name  = "/showrunner/${local.env}/customers/${local.customer}/${each.key}"
   type  = "String"
@@ -40,4 +44,9 @@ output "function_name" {
 output "alarm_names" {
   description = "This customer's alarms."
   value       = local.published.alarm_names
+}
+
+output "site_url" {
+  description = "Customer page (features.customer_page), or null."
+  value       = try(local.published_site.site_url, null)
 }
