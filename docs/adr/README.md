@@ -16,3 +16,4 @@ context, decision, consequences, and when we'd decide differently.
 | [0010](0010-ops-core-cross-env-reads.md) | ops-core reads two dev outputs with the prod apply role (read-only carve-out); PR plans check the apply role's access | accepted |
 | [0011](0011-plan-role-decrypt-via-lambda.md) | The plan role may decrypt only via Lambda (no false environment diff) | accepted |
 | [0012](0012-bedrock-model-id.md) | Nova Lite by its in-region model ID, not the US inference profile | accepted |
+| [0013](0013-review-agents.md) | PR review agents: one specialist; the verifier runs code checks before it asks a model | accepted |

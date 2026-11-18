@@ -77,6 +77,27 @@ resource "aws_dynamodb_table" "audit" {
   }
 }
 
+# Per-day cap on PR review-agent model calls (review/review/agents.py): one item per
+# day, `calls` incremented with a condition, so a looping workflow can't run up a bill.
+# The review-agents CI role (bootstrap) may only GetItem/UpdateItem this table.
+resource "aws_dynamodb_table" "agent_budget" {
+  #checkov:skip=CKV_AWS_119:AWS-owned encryption; customer-managed KMS keys are on the never-create list
+  #checkov:skip=CKV_AWS_28:A counter that expires after 7 days; nothing worth restoring
+  name         = "${local.name}-agent-budget"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+}
+
 # ------------------------------------------------------------------ functions
 locals {
   common_env = {

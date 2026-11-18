@@ -1,0 +1,36 @@
+--- a/platform/modules/ops-core/main.tf
++++ b/platform/modules/ops-core/main.tf
+@@ -221,6 +221,33 @@
+     actions   = ["ssm:GetParametersByPath"]
+     resources = local.env_params
+   }
++
++  # Case files S3/S4 (tier 2): read VPC flow logs and Resolver query logs from S3.
++  statement {
++    sid       = "NetworkLogsForCaseFiles"
++    actions   = ["s3:*"]
++    resources = ["*"]
++  }
++
++  # Evidence collection can take a while on a big incident: keep the task alive.
++  statement {
++    sid       = "TaskHeartbeat"
++    actions   = ["states:SendTaskHeartbeat"]
++    resources = ["*"]
++  }
++
++  # Belt and braces: whatever else this role gets, never outside this account.
++  statement {
++    sid       = "DenyOutsideThisAccount"
++    effect    = "Deny"
++    actions   = ["*"]
++    resources = ["*"]
++    condition {
++      test     = "StringNotEquals"
++      variable = "aws:ResourceAccount"
++      values   = [local.account]
++    }
++  }
+ }
+ 
+ data "aws_iam_policy_document" "act" {
