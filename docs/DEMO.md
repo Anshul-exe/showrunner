@@ -22,18 +22,41 @@ repo's Issues filtered by `label:incident`, and PR #3 (plan comments).
 |---|---|---|---|
 | 0:00 | Frame | README: the four bullets, the diagram, the measured timings | - |
 | 1:00 | Start S1 | `./sr demo s1 start`: "the vendor gets 1.5 s slower for acme-tv; this pages in ~1-2 minutes" | [S1 recording](demo/S1.md) |
-| 1:30 | Self-service | `platform/customers/acme-tv/dev.yaml` -> one module; a PR's plan comment per stack with policy checks | PR #3 comments |
+| 1:30 | Self-service | a fourth customer, live: the commands below open a PR with one 10-line file; while CI plans it, show `acme-tv/dev.yaml` -> one module; then the plan comment: 61 to add, policy checks incl. **readiness** (every dependency alarmed, every alarm has a runbook) and the apply-role access check | [PR #5](https://github.com/Anshul-exe/showrunner/pull/5): the third customer, lumen-kids, added the same way (plan comments per stack) |
 | 3:00 | Supply chain | PR #4: a "routine" dependency whose postinstall hunts for credentials; the `supply-chain` check: scripts off, then run on purpose: finds nothing, harden-runner blocks `exfil.example.com` | [recording](demo/supply-chain.md) |
 | 4:30 | Incident | the issue: evidence table, H1 vendor confirmed, **the cache refuted with Valkey's µs**, A1 with the exact diff, blast radius and rollback; comment `/approve A1`; `./sr demo watch` p95 falls with no deploy; the audit rows | issue #2 (17/11/2026 run), [S1 recording](demo/S1.md) |
 | 8:00 | Roadmap | [ROADMAP.md](ROADMAP.md): tiers 2-3 against the three six-month goals | - |
 
 After: `./sr demo s1 stop` (or `./sr demo reset`), then `./sr preflight`.
 
+## The live customer PR (segment 1:30)
+
+```bash
+git switch -c customer/harbor-news-dev
+mkdir -p platform/customers/harbor-news
+cat > platform/customers/harbor-news/dev.yaml <<'YAML'
+customer: harbor-news
+env: dev
+tier: standard
+owner: team-harbor
+cost_center: harbor-news
+budget_usd: 10
+catalog: tv
+features: {}
+YAML
+git add platform/customers/harbor-news && git commit -m "feat(customers): harbor-news dev"
+git push -u origin customer/harbor-news-dev
+gh pr create --fill --label demo
+```
+
+Merging applies only that stack (apply time not measured yet). Leave it unmerged
+after the demo if the 3 extra alarms ($0.10 each per month) aren't wanted.
+
 ## What to say when it differs
 
-- **"Model unavailable" in the triage heading:** Bedrock isn't enabled on this account
-  yet; triage ran on deterministic rules, and the verifier's verdicts are numeric
-  checks either way.
+- **"Model unavailable" in the triage heading:** Bedrock failed or throttled (it's
+  enabled since 18/11/2026; `sr preflight` checks it). The loop fell back to
+  deterministic rules, and the verifier's verdicts are numeric checks either way.
 - **"expected p95 (only N min of history)":** traffic started recently; the baseline is
   the documented normal latency instead of a median that might include the problem.
 - **The vendor alarm stays red after the fix:** with the fallback on, the vendor metric

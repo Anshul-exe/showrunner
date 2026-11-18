@@ -13,3 +13,6 @@ context, decision, consequences, and when we'd decide differently.
 | [0006](0006-shared-cache-iam-auth.md) | One Valkey cache per env, per-customer IAM-authenticated ACL users | accepted |
 | [0008](0008-approver-role-scope.md) | The approver role can't be scoped to one state machine | accepted |
 | [0009](0009-oidc-immutable-subject.md) | OIDC trust uses GitHub's immutable subject format | accepted |
+| [0010](0010-ops-core-cross-env-reads.md) | ops-core reads two dev outputs with the prod apply role (read-only carve-out); PR plans check the apply role's access | accepted |
+| [0011](0011-plan-role-decrypt-via-lambda.md) | The plan role may decrypt only via Lambda (no false environment diff) | accepted |
+| [0012](0012-bedrock-model-id.md) | Nova Lite by its in-region model ID, not the US inference profile | accepted |

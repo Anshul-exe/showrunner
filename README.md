@@ -50,8 +50,11 @@ Measured on `dev` with scenario S1 (the vendor gets 1.5 s slower for `acme-tv`):
 
 The analysis named the vendor (1,633 ms vs an expected 250 ms) and **ruled out the cache
 with numbers**: Valkey at 2.1 ms client-side, 1,238 µs server-side p99, 0.1% of the API's
-p95. Bedrock isn't enabled on this new account yet, so triage ran on deterministic rules
-and the issue says so; the verifier's verdicts are numeric checks either way.
+p95. Bedrock wasn't enabled on the new account during that run, so triage ran on
+deterministic rules and the issue says so; the verifier's verdicts are numeric checks
+either way. Bedrock answered on 18/11/2026: one triage through the deployed Lambda on
+the same evidence used Nova Lite (1,265 tokens in, 222 out, $0.00013;
+[record](docs/demo/model-triage.md)).
 
 **Not yet run end to end:** `/approve A1` -> act -> recovery check -> post-incident
 review on GitHub. Every step is unit-tested (including act refusing anything but the

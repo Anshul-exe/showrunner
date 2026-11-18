@@ -1,6 +1,7 @@
 # terraform plan for the stacks a PR touches, posted as a PR comment.
 #
-# Role: showrunner-ci-plan (read-only; denied secrets and kms:Decrypt). Its trust
+# Role: showrunner-ci-plan (read-only; denied secrets, and kms:Decrypt except for Lambda
+# returning environment variables, ADR 0011). Its trust
 # policy accepts only this repo, the pull_request event, and this workflow file.
 # Fork PRs never get an OIDC token from GitHub, and the `if` below skips them anyway.
 name: plan
@@ -126,6 +127,13 @@ jobs:
           else
             echo "policy=failed" >> "$GITHUB_OUTPUT"
           fi
+          # Would the APPLY role be allowed the reads this plan made? (ADR 0010)
+          if uv run --frozen python tools/ci/access_check.py "$STACK" "$RUNNER_TEMP/plan.json" > "$RUNNER_TEMP/access.md"; then
+            echo "access=ok" >> "$GITHUB_OUTPUT"
+          else
+            echo "access=failed" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$RUNNER_TEMP/access.md"
           rm -f "$RUNNER_TEMP/plan.json"
         shell: bash
         # SPEC is the matrix entry as JSON (dir + args), from changed_stacks.py
@@ -139,7 +147,8 @@ jobs:
           POLICY: ${{ steps.plan.outputs.policy }}
         run: |
           [[ -f "$RUNNER_TEMP/plan.txt" ]] || echo "plan failed: see the job log" > "$RUNNER_TEMP/plan.txt"
-          python3 tools/ci/plan_comment.py "$STACK" "${POLICY:-failed}" < "$RUNNER_TEMP/plan.txt" > "$RUNNER_TEMP/comment.md"
+          [[ -f "$RUNNER_TEMP/access.md" ]] || echo "Apply-role access: not checked (plan failed)" > "$RUNNER_TEMP/access.md"
+          python3 tools/ci/plan_comment.py "$STACK" "${POLICY:-failed}" "$RUNNER_TEMP/access.md" < "$RUNNER_TEMP/plan.txt" > "$RUNNER_TEMP/comment.md"
           # One comment per stack, updated on each push (found by its marker).
           id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
             | jq -r --arg m "<!-- sr-plan:$STACK -->" '.[] | select(.body | startswith($m)) | .id' | head -1)
@@ -148,8 +157,8 @@ jobs:
           else
             gh pr comment "$PR" --body-file "$RUNNER_TEMP/comment.md"
           fi
-      - name: fail on policy violations
-        if: steps.plan.outputs.policy != 'ok'
+      - name: fail on policy violations or apply-role access denials
+        if: steps.plan.outputs.policy != 'ok' || steps.plan.outputs.access != 'ok'
         run: exit 1
     env:
       SPEC: ${{ toJSON(matrix.stack) }}

@@ -48,7 +48,7 @@ except where marked.
 | Lambda, API Gateway, DynamoDB on-demand, AppConfig, SNS, SSM | < $1 | request-priced, near zero at idle |
 | CloudTrail (one trail, management events) + its S3 bucket | < $0.10 | first copy of management events is free |
 | Incident loop (day 2): Step Functions, 5 Lambdas, audit table, EventBridge rule | < $0.10 | ~30-60 transitions = ~$0.0015 per incident; idle costs nothing |
-| Bedrock Nova Lite (when enabled) | < $0.05 | ~3K tokens in, ~1K out per agent call = ~$0.0004; capped by the $5 Bedrock budget |
+| Bedrock Nova Lite (enabled 18/11/2026; one triage call measured at $0.00013) | < $0.05 | ~3K tokens in, ~1K out per agent call = ~$0.0004; capped by the $5 Bedrock budget |
 | **Total** | **~$17-22** | target in the brief: $22-28 |
 
 Each new customer adds ~$0.60-2 (its 6 metrics, 5 alarm metrics, a table, a function):

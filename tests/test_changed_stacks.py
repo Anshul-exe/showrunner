@@ -102,5 +102,5 @@ def test_plan_comment_labels_the_lambda_env_false_diff():
     import plan_comment
     text = ("  ~ resource \"aws_lambda_function\" \"this\" {\n      ~ environment {\n          + variables = {\n"
             "              + \"ENV\" = \"dev\"\n            }\n        }\nPlan: 0 to add, 2 to change, 0 to destroy.")
-    assert "known false diff" in plan_comment.summarise("customers/acme-tv/dev", text, True)
-    assert "known false diff" not in plan_comment.summarise("shared/dev", "No changes.", True)
+    assert "old false diff" in plan_comment.summarise("customers/acme-tv/dev", text, True)
+    assert "old false diff" not in plan_comment.summarise("shared/dev", "No changes.", True)
