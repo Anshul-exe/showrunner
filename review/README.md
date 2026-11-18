@@ -19,6 +19,7 @@ changed paths --route (rules)--> iac-security --findings--> verifier --> one PR 
 | `review/iam.py` | reads the IAM statement around a Terraform line (HCL `statement {}` and `jsonencode`) |
 | `review/agents.py` | loads instruction files, calls Bedrock (Converse, forced tool call = structured output), the caps |
 | `review/render.py` | the comment: confirmed table, refuted collapsed with the reason |
+| `review/gate.py` + `agents/review-gate.md` | the check: always runs, fails closed (fork PR, scanner crash, failed review), `accept-risk` override written to `sr-ops-audit` |
 | `demo/seeded-pr.patch` | the seeded change for the demo |
 
 Why it's built this way:

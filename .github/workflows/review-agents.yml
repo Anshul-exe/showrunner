@@ -5,11 +5,15 @@
 #   review    holds the OIDC token for showrunner-ci-review-agents (Bedrock invoke on one
 #             model + the call counter, nothing else). Installs nothing: system python3
 #             and the preinstalled AWS CLI. At most 2 model calls per run, 40 per day.
-#   gate      posts the comment and is the check: pull-requests:write, runs no repo code.
+#   gate      is the check (review/review/gate.py): ALWAYS runs, because GitHub counts a
+#             skipped required check as passing; fails closed when the evidence or review
+#             job didn't succeed, and on fork PRs ("not reviewed automatically").
+#             Installs nothing; AWS only to record an accepted override.
 #
 # A confirmed HIGH fails the gate. Override: add the label `accept-risk`, write the
 # reason in a comment, then "Re-run failed jobs": only the gate re-runs (it reads the
-# labels at run time), so an override costs no model calls. See docs/adr/0013.
+# labels at run time), so an override costs no model calls, and it is written to
+# sr-ops-audit (REVIEW#pr-<n>, never overwritten). See docs/adr/0013.
 name: review-agents
 
 on:
@@ -89,6 +93,7 @@ jobs:
     outputs:
       comment: ${{ steps.run.outputs.comment }}
       blocking: ${{ steps.run.outputs.blocking }}
+      highs: ${{ steps.run.outputs.highs }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -125,46 +130,83 @@ jobs:
           PYTHONPATH=review python3 -m review comment < "$RUNNER_TEMP/result.json" > "$RUNNER_TEMP/comment.md"
           echo "comment=$(base64 -w0 "$RUNNER_TEMP/comment.md")" >> "$GITHUB_OUTPUT"
           echo "blocking=$(jq -r .blocking "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
+          echo "highs=$(jq -c .confirmed_high "$RUNNER_TEMP/result.json" | base64 -w0)" >> "$GITHUB_OUTPUT"
 
   gate:
     name: review-agents gate
     needs: [evidence, review]
-    if: always() && needs.evidence.result == 'success'
+    if: always()
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
       pull-requests: write
+      id-token: write
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: block
           allowed-endpoints: >
+            github.com:443
             api.github.com:443
-      - name: comment, then pass or fail
+            sts.us-east-1.amazonaws.com:443
+            dynamodb.us-east-1.amazonaws.com:443
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: decide (fail closed)
+        id: decide
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
+          EVIDENCE_RESULT: ${{ needs.evidence.result }}
           REVIEW: ${{ needs.evidence.outputs.review }}
           REVIEW_RESULT: ${{ needs.review.result }}
           COMMENT: ${{ needs.review.outputs.comment }}
           BLOCKING: ${{ needs.review.outputs.blocking }}
+          HIGHS: ${{ needs.review.outputs.highs }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [[ "$REVIEW" != "true" ]]; then echo "no Terraform changes: nothing for iac-security"; exit 0; fi
-          if [[ "$REVIEW_RESULT" != "success" ]]; then echo "the review job failed: see its log"; exit 1; fi
-          base64 -d <<< "$COMMENT" > "$RUNNER_TEMP/comment.md"
-          labeled=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" --jq '[.[].name] | index("accept-risk") != null')
-          if [[ "$BLOCKING" == "true" && "$labeled" == "true" ]]; then
-            by=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/events" --paginate \
-              --jq '[.[] | select(.event == "labeled" and .label.name == "accept-risk")] | last | "\(.actor.login) at \(.created_at)"')
-            printf '\n**Override:** `accept-risk` label added by %s; the gate passes. The reason must be in a PR comment.\n' "$by" >> "$RUNNER_TEMP/comment.md"
+          d="$RUNNER_TEMP/gate"; mkdir -p "$d"
+          [[ -z "$COMMENT" ]] || base64 -d <<< "$COMMENT" > "$d/review.md"
+          [[ -z "$HIGHS" ]] || base64 -d <<< "$HIGHS" > "$d/highs.json"
+          if [[ "$FORK" != "true" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" > "$d/labels.json"
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/events" --paginate | jq -s add > "$d/events.json"
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate | jq -s add > "$d/comments.json"
           fi
+          PYTHONPATH=review python3 -m review gate --fork "$FORK" --evidence-result "$EVIDENCE_RESULT" \
+            --review-needed "$REVIEW" --review-result "$REVIEW_RESULT" --blocking "$BLOCKING" \
+            --repo "$GITHUB_REPOSITORY" --pr "$PR" --run-url "$RUN_URL" --out "$d" \
+            --review-comment "$d/review.md" --highs "$d/highs.json" \
+            --labels "$d/labels.json" --events "$d/events.json" --comments "$d/comments.json"
+          echo "record=$(jq -r '.record != null' "$d/decision.json")" >> "$GITHUB_OUTPUT"
+          echo "comment=$(jq -r .comment "$d/decision.json")" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        if: steps.decide.outputs.record == 'true'
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/showrunner-ci-review-agents
+          aws-region: us-east-1
+          role-session-name: review-gate-pr-${{ github.event.pull_request.number }}
+      - name: record the accept-risk override (sr-ops-audit, never overwritten)
+        if: steps.decide.outputs.record == 'true'
+        env:
+          AWS_REGION: us-east-1
+        run: PYTHONPATH=review python3 -m review gate-record --dir "$RUNNER_TEMP/gate"
+      - name: comment (one per PR, refreshed)
+        if: steps.decide.outputs.comment == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
           id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
-            | jq -r '.[] | select(.body | startswith("<!-- sr-review -->")) | .id' | head -1)
+            | jq -rs 'add | .[] | select(.body | startswith("<!-- sr-review -->")) | .id' | head -1)
           if [[ -n "$id" ]]; then
-            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/comment.md" >/dev/null
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$RUNNER_TEMP/gate/comment.md" >/dev/null
           else
-            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$RUNNER_TEMP/comment.md" >/dev/null
+            gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F "body=@$RUNNER_TEMP/gate/comment.md" >/dev/null
           fi
-          if [[ "$BLOCKING" == "true" && "$labeled" != "true" ]]; then
-            echo "a confirmed high finding: see the PR comment (override: label accept-risk + reason, then re-run failed jobs)"
-            exit 1
-          fi
+      - name: pass or fail
+        run: |
+          jq -r .message "$RUNNER_TEMP/gate/decision.json"
+          jq -e .ok "$RUNNER_TEMP/gate/decision.json" > /dev/null

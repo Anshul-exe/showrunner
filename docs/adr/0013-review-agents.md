@@ -27,16 +27,27 @@ the part worth getting right.
   with the checks' results and the code around the line. Confirmed findings go in a
   table; refuted ones are listed collapsed with the reason, so the human sees what was
   filtered.
-- **Gate:** a confirmed **high** fails the `review-agents gate` check. Override: label
-  `accept-risk` plus a reason in a comment, then "Re-run failed jobs"; the gate reads
-  the labels at run time, records who added the label (from the issue events API) in
-  the comment, and passes. The re-run is the gate job only: no model calls.
+- **Gate** (`review/review/gate.py`, the `review-agents gate` check): a confirmed
+  **high** fails it. Override: label `accept-risk` plus a reason comment by whoever
+  added the label, then "Re-run failed jobs"; the gate reads labels, label events and
+  comments at run time, writes the override to the audit table (below) and passes. The
+  re-run is the gate job only: no model calls. No reason comment, no pass.
+- **The gate always runs and fails closed.** GitHub counts a *skipped* required check as
+  passing, so a gate that only ran after a successful evidence job (the first version)
+  would have let a scanner crash, or any fork PR (whose evidence job is skipped), pass.
+  Now `if: always()`, and in order: fork PR -> fail, "not reviewed automatically: fork
+  PR"; evidence job not `success` -> fail; no Terraform -> pass; review job not
+  `success` -> fail; then the findings. A cancelled run (superseded by a newer push)
+  still fails but doesn't overwrite the newer run's comment. Shown by a fixture run of
+  the gate CLI with `--evidence-result failure` (`tests/review_agents/test_gate.py`)
+  and a test that the workflow's gate is `if: always()` and needs both jobs.
 - **Three jobs, three trust levels** (`review-agents.yml`):
   - `evidence` installs and runs checkov (third-party code) with `contents: read` only;
   - `review` holds the OIDC token for `showrunner-ci-review-agents` (Bedrock invoke on
     one model, and the call counter) and installs nothing: system `python3` (the
     package is standard library only) and the preinstalled AWS CLI;
-  - `gate` has `pull-requests: write` and runs no repository code.
+  - `gate` has `pull-requests: write`, installs nothing, and gets AWS credentials only
+    for the step that records an accepted override.
   Each job's harden-runner allow-list is only what that job calls.
 - **Caps:** at most 2 model calls per run (`AWS_MAX_ATTEMPTS=1`, so no silent retries),
   and 40 per day through a conditional increment on `sr-ops-agent-budget` (DynamoDB,
@@ -58,8 +69,9 @@ the part worth getting right.
 - The specialist's prompt asks for recall (every IAM statement with `*`); precision is
   the verifier's job. With a precision-minded prompt the model silently skipped the
   look-alikes, so the comment couldn't show what was filtered.
-- The review job runs the PR's own copy of `review/`, so a collaborator's PR could change
-  the caps. The role limits the damage to Nova Lite calls (the Bedrock $5 budget alarm is
+- The jobs run the PR's own copy of `review/` and of the workflow (that's how
+  `pull_request` works), so a collaborator's PR could change the caps or the gate; the
+  control for that is CODEOWNERS review of `.github/` and `review/`. The role limits the damage to Nova Lite calls (the Bedrock $5 budget alarm is
   the backstop); fork PRs get no OIDC token and are skipped.
 - **`accept-risk` goes into the audit trail** (owner's decision, 18/11/2026). The review
   role may `dynamodb:PutItem` on `sr-ops-audit` only, with

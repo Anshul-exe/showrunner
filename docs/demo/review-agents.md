@@ -68,20 +68,53 @@ _Routed but not built yet (tier 3): `cost`._
 interview: a small model is a good *enumerator* and a poor *judge*; give judging to code
 wherever a check exists, and to the model only what's left.
 
-## Run it live
+## Rehearsal on the demo branch (18/11/2026 20:43 UTC)
 
-After `sr-ops-agent-budget` exists (ops-core apply):
+The seeded commit on a local branch `demo/review-seed`; every step of `review-agents.yml`
+run locally on it, base = the `main` that will be pushed.
 
-```bash
-git switch -c demo/review-seed origin/main
-git apply review/demo/seeded-pr.patch
-git commit -am "feat(ops): network logs for case files (seeded review demo, do not merge)"
-git push -u origin demo/review-seed
-gh pr create --title "Seeded review demo (do not merge)" --body "Seeded PR for the review-agents demo."
-# watch: review-agents gate fails with 1 confirmed, 2 refuted
-# override path: gh pr edit --add-label accept-risk; comment the reason; re-run failed jobs
-gh pr close demo/review-seed --delete-branch    # afterwards
-```
+| Step | Result |
+|---|---|
+| route | `iac-security` (and `cost`, routed but not built) |
+| evidence | 1 hunk; checkov: 0 failures on the platform |
+| review, **without** the `sr-ops-agent-budget` table | counter not found -> no model call -> rules mode -> 0 findings -> the gate would **pass**. So the PR must be opened after the ops-core apply |
+| review, with the counter (stubbed locally) | 1 model call, 1,541 + 339 tokens, $0.00017; F1 `s3:*` **confirmed**, F2 heartbeat and F3 Deny **refuted**, all by checks; exit 1 (confirmed high) |
+| gate, no label | **fails**: "a confirmed high finding; to override, add the label `accept-risk`..." |
+| gate, label but no reason comment | **fails**: "... there's no reason: <who> must write it in a PR comment" |
+| gate, label + reason comment (simulated events) | **passes**; audit row built: pk `REVIEW#pr-<n>`, sk `<labelled at>#accept-risk`, by, at, PR, finding F1, reason link, run (not written: the first real write is the live demo) |
 
-The model may word findings differently, or skip one, on a live run; the verdicts come
-from the checks, so a reported finding gets the same verdict. Fallback: this page.
+## Demo script (live PR)
+
+Before the demo (the PR's runs take a few minutes): open the PR (commands in the
+private run book). Then, in the demo:
+
+1. **The PR and the comment** (30 s). "A routine-looking change: read flow logs for the
+   case files. The review agent's comment: three findings, one confirmed, two refuted,
+   with the reason for each. A small model is a good enumerator and a poor judge; code
+   judges wherever a check exists." Point at the collapsed refuted list.
+2. **The gate fails** (15 s). Checks tab: `review-agents gate` red on the confirmed high.
+   It's a required check, so the PR can't merge. "It also fails closed: a scanner crash
+   or a fork PR fails it, because GitHub counts a skipped required check as green."
+3. **Accept the risk, on the record** (60 s). Write the reason as a PR comment, add the
+   label `accept-risk`, then "Re-run failed jobs": only the gate re-runs (no model calls).
+4. **The gate passes** and the comment gains an "Override" line with who, when and the
+   reason link. Show the audit row:
+
+   ```bash
+   aws dynamodb query --table-name sr-ops-audit --key-condition-expression 'pk = :p' \
+     --expression-attribute-values '{":p":{"S":"REVIEW#pr-<n>"}}' --output table
+   ```
+5. "The review role can write that row and nothing else: PutItem, this table, keys
+   starting with REVIEW#, never an overwrite." (ADR 0013, simulator assertions.)
+6. Close the PR without merging.
+
+Fallback: this page (the recorded run and the rehearsal above).
+
+If it differs: the model may word findings differently or skip one look-alike; the
+verdicts come from the checks. "rules: ... (model not used: ...)" in the comment means
+the model or the counter was unavailable: say so; the gate still enforces the rest.
+
+## Real run on GitHub
+
+Not run yet. (Recorded here with the date, the PR, the run times and the audit row once
+the PR is open.)
