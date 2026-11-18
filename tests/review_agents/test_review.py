@@ -235,7 +235,9 @@ def test_comment_and_gate(repo, evidence, monkeypatch, capsys, tmp_path):
 
 
 # ------------------------------------------------------------------ contract
-AGENT_FILES = sorted((ROOT / "review" / "agents").glob("*.md"))
+ALL_FILES = sorted((ROOT / "review" / "agents").glob("*.md"))
+AGENT_FILES = [p for p in ALL_FILES if agents.load(p.stem).meta.get("model")]  # AI agents
+STEP_FILES = [p for p in ALL_FILES if p not in AGENT_FILES]  # deterministic steps (the gate)
 
 
 @pytest.mark.parametrize("path", AGENT_FILES, ids=lambda p: p.stem)
@@ -250,24 +252,33 @@ def _hcl_statements(tf: str, doc: str) -> list[dict]:
     block = re.search(rf'data "aws_iam_policy_document" "{doc}" \{{(.*?)\n\}}', tf, re.S).group(1)
     out = []
     for s in re.findall(r"statement \{(.*?)\n  \}", block, re.S):
+        conds = [{"test": t, "variable": v, "values": re.findall(r'"([^"]*)"', vals)}
+                 for t, v, vals in re.findall(r'condition \{\s*test\s*=\s*"([^"]+)"\s*variable\s*=\s*"([^"]+)"\s*values\s*=\s*\[([^\]]*)\]', s)]
         out.append({"actions": re.findall(r'"([a-z0-9-]+:[A-Za-z*]+)"', re.search(r"actions\s*=\s*\[(.*?)\]", s, re.S).group(1)),
-                    "resources": re.search(r"resources\s*=\s*\[(.*?)\]", s, re.S).group(1)})
+                    "resources": re.search(r"resources\s*=\s*\[(.*?)\]", s, re.S).group(1), "conditions": conds})
     return out
 
 
 def test_bootstrap_role_matches_instruction_files():
-    """The review-agents role = the agents' `iam` + the call counter, nothing else."""
+    """The review-agents role = the agents' and the gate's `iam` + the call counter,
+    nothing else; resources and conditions included."""
     tf = (ROOT / "platform" / "bootstrap" / "roles.tf").read_text()
     stmts = _hcl_statements(tf, "review_agents")
-    declared = {a for p in AGENT_FILES for s in agents.load(p.stem).meta["iam"] for a in s["actions"]}
+    files = {p.stem: agents.load(p.stem).meta for p in ALL_FILES}
+    declared = {a for m in files.values() for s in m["iam"] for a in s["actions"]}
     counter = {"dynamodb:UpdateItem", "dynamodb:GetItem"}
     granted = {a for s in stmts for a in s["actions"]}
     assert granted == declared | counter
+    gate_iam = files["review-gate"]["iam"]
     for s in stmts:
         if set(s["actions"]) & counter:
-            assert set(s["actions"]) <= counter and "ops-agent-budget" in s["resources"]
+            assert set(s["actions"]) <= counter and "ops-agent-budget" in s["resources"] and not s["conditions"]
+        elif s["actions"] == ["dynamodb:PutItem"]:
+            (g,) = [x for x in gate_iam if x["actions"] == ["dynamodb:PutItem"]]
+            assert g["resources"] == ["table/sr-ops-audit"] and "-ops-audit" in s["resources"]
+            assert s["conditions"] == g["conditions"]  # LeadingKeys REVIEW#* and the Null guard
         else:
-            assert "foundation-model/${var.bedrock_model_id}" in s["resources"]
+            assert "foundation-model/${var.bedrock_model_id}" in s["resources"] and not s["conditions"]
     variables = (ROOT / "platform" / "bootstrap" / "variables.tf").read_text()
     model = re.search(r'variable "bedrock_model_id".*?default\s*=\s*"([^"]+)"', variables, re.S).group(1)
     assert {agents.load(p.stem).meta["model"] for p in AGENT_FILES} == {model}

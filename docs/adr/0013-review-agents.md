@@ -61,9 +61,20 @@ the part worth getting right.
 - The review job runs the PR's own copy of `review/`, so a collaborator's PR could change
   the caps. The role limits the damage to Nova Lite calls (the Bedrock $5 budget alarm is
   the backstop); fork PRs get no OIDC token and are skipped.
-- `accept-risk` is recorded in the PR (comment + GitHub's label event), not yet in the
-  `sr-ops-audit` table: that needs a write permission on the review role (a bootstrap
-  change, waiting for the owner's decision).
+- **`accept-risk` goes into the audit trail** (owner's decision, 18/11/2026). The review
+  role may `dynamodb:PutItem` on `sr-ops-audit` only, with
+  `ForAllValues:StringLike dynamodb:LeadingKeys = REVIEW#*` plus `Null = false` (without
+  the Null guard, ForAllValues is true for a request with no key at all), so it can't
+  write an incident row. The write uses `attribute_not_exists(pk)`: no row is
+  overwritten, and a re-run finds its row and moves on. IAM has no condition key for a
+  ConditionExpression, so the no-overwrite rule lives in code; IAM bounds the damage to
+  `REVIEW#` rows. Row: pk `REVIEW#pr-<n>`, sk `<labelled at>#accept-risk`; who added the
+  label, when, the PR, the confirmed high findings, the reason comment's link, the run;
+  kept a year (incident rows: 90 days). Checked by the IAM simulator
+  (`platform/bootstrap/tests/iam-guardrails.sh`: REVIEW# key allowed; an incident key,
+  a mixed key list, no key, Update/Delete, another table denied) and declared in
+  `review/agents/review-gate.md`, so the policy-matches-instructions test covers it,
+  conditions included (a negative control, `REVIEW#*` -> `*`, fails it).
 
 ## When we'd decide differently
 

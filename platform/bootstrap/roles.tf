@@ -350,13 +350,34 @@ data "aws_iam_policy_document" "review_agents" {
     actions   = ["dynamodb:UpdateItem", "dynamodb:GetItem"]
     resources = ["${local.arn_prefix.ddb}:table/${local.workload_prefix}-ops-agent-budget"]
   }
+
+  # The gate records an `accept-risk` override in the audit trail (ADR 0013): PutItem
+  # only, sr-ops-audit only, and only rows whose partition key starts with REVIEW#, so
+  # incident rows can't be written. Null=false: ForAllValues alone is true when the key
+  # is missing. The no-overwrite rule (attribute_not_exists) is in the code: IAM has
+  # no condition key for a ConditionExpression.
+  statement {
+    sid       = "RecordAcceptRisk"
+    actions   = ["dynamodb:PutItem"]
+    resources = ["${local.arn_prefix.ddb}:table/${local.workload_prefix}-ops-audit"]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["REVIEW#*"]
+    }
+    condition {
+      test     = "Null"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["false"]
+    }
+  }
 }
 
 module "role_review_agents" {
   source = "../modules/github-oidc-role"
 
   name                     = "${local.ci_prefix}-review-agents"
-  description              = "PR review agents: Bedrock invoke on one model, nothing else."
+  description              = "PR review agents: Bedrock invoke on one model, the call counter, accept-risk audit rows."
   oidc_provider_arn        = aws_iam_openid_connect_provider.github.arn
   repository_id            = var.github_repository_id
   subject                  = "${local.sub_prefix}:pull_request"

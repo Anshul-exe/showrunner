@@ -20,6 +20,7 @@ pb() { echo "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=$1,ContextK
 it() { echo "ContextKeyName=ec2:InstanceType,ContextKeyValues=$1,ContextKeyType=string"; }
 env() { echo "ContextKeyName=aws:ResourceTag/env,ContextKeyValues=$1,ContextKeyType=string"; }
 via() { echo "ContextKeyName=kms:ViaService,ContextKeyValues=$1,ContextKeyType=string"; }
+lk() { echo "ContextKeyName=dynamodb:LeadingKeys,ContextKeyValues=$1,ContextKeyType=stringList"; }
 P="arn:aws:ssm:us-east-1:${A}:parameter"; K="arn:aws:kms:us-east-1:${A}:key/any"
 
 check showrunner-ci-plan s3:GetObject "$B/bootstrap/terraform.tfstate" allowed
@@ -58,6 +59,16 @@ check showrunner-ci-apply-dev ssm:GetParameter "$P/showrunner/prod/shared/alerts
 check showrunner-ci-review-agents bedrock:InvokeModel "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0" allowed
 check showrunner-ci-review-agents bedrock:InvokeModel "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0" denied
 check showrunner-ci-review-agents s3:GetObject "$B/bootstrap/terraform.tfstate" denied
+# ADR 0013: the gate may add accept-risk rows (REVIEW#...) to the audit table, nothing else
+D="arn:aws:dynamodb:us-east-1:${A}:table"
+check showrunner-ci-review-agents dynamodb:PutItem "$D/sr-ops-audit" allowed "$(lk 'REVIEW#pr-12')"
+check showrunner-ci-review-agents dynamodb:PutItem "$D/sr-ops-audit" denied "$(lk acme-tv-dev-20261118T1010)"
+check showrunner-ci-review-agents dynamodb:PutItem "$D/sr-ops-audit" denied "$(lk 'REVIEW#pr-12,acme-tv-dev-x')"
+check showrunner-ci-review-agents dynamodb:PutItem "$D/sr-ops-audit" denied
+check showrunner-ci-review-agents dynamodb:UpdateItem "$D/sr-ops-audit" denied "$(lk 'REVIEW#pr-12')"
+check showrunner-ci-review-agents dynamodb:DeleteItem "$D/sr-ops-audit" denied "$(lk 'REVIEW#pr-12')"
+check showrunner-ci-review-agents dynamodb:PutItem "$D/sr-ops-deploy-log" denied "$(lk 'REVIEW#pr-12')"
+check showrunner-ci-review-agents dynamodb:UpdateItem "$D/sr-ops-agent-budget" allowed
 check showrunner-ci-deploy-dev lambda:UpdateFunctionCode "arn:aws:lambda:us-east-1:${A}:function:sr-acme-tv-dev-catalog-api" allowed
 check showrunner-ci-deploy-dev lambda:UpdateFunctionCode "arn:aws:lambda:us-east-1:${A}:function:sr-acme-tv-prod-catalog-api" denied
 check showrunner-ci-deploy-dev ec2:CreateVpc "*" denied
