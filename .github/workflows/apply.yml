@@ -21,9 +21,10 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: apply-dev
-  cancel-in-progress: false # never cancel an apply halfway
+# Concurrency is per job, not per workflow: a run whose ops-core job is waiting for
+# the prod reviewer must not hold up the next run's dev applies. Each stack has its
+# own group (two runs never apply the same stack at once; the S3 lockfile backs it up),
+# and nothing is ever cancelled halfway.
 
 env:
   CHECKPOINT_DISABLE: "1"
@@ -73,6 +74,9 @@ jobs:
     if: needs.stacks.outputs.matrix != '[]'
     runs-on: ubuntu-24.04
     environment: dev
+    concurrency:
+      group: apply-${{ matrix.stack.stack }}
+      cancel-in-progress: false
     strategy:
       fail-fast: true
       max-parallel: 1 # in order; customer stacks also share the cache's user group
@@ -143,6 +147,9 @@ jobs:
     if: always() && needs.stacks.outputs.ops == 'true' && needs.apply.result != 'failure'
     runs-on: ubuntu-24.04
     environment: prod
+    concurrency:
+      group: apply-ops-core
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write # OIDC -> showrunner-ci-apply-prod

@@ -33,7 +33,7 @@ def summarise(stack: str, text: str, policy_ok: bool) -> str:
     return (
         f"<!-- sr-plan:{stack} -->\n"
         f"### `{stack}`: {headline}\n"
-        f"Policy checks (never-create list, tags): {policy}\n\n"
+        f"Policy checks (never-create list, tags, readiness): {policy}\n\n"
         f"{note}"
         f"<details><summary>terraform plan</summary>\n\n```\n{body}\n```\n</details>\n"
     )
