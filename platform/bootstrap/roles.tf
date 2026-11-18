@@ -22,6 +22,8 @@ locals {
       functions  = ["${local.arn_prefix.lambda}:function:${local.workload_prefix}-*-dev-*"]
       cd_apps    = ["${local.arn_prefix.cd}:application:${local.workload_prefix}-*-dev-*", "${local.arn_prefix.cd}:deploymentgroup:${local.workload_prefix}-*-dev-*/*"]
       other_env  = "prod"
+      # Non-secret outputs of the other environment this role's stacks read. None.
+      other_env_reads = []
     }
     prod = {
       state_keys = ["shared/prod/*", "customers/*/prod/*", "ops-core/*"]
@@ -36,6 +38,12 @@ locals {
         "${local.arn_prefix.cd}:deploymentgroup:${local.workload_prefix}-ops-*/*",
       ]
       other_env = "dev"
+      # ops-core (applied by this role) serves every env, so it reads two non-secret
+      # outputs of each env's shared stack. Read-only; ADR 0010.
+      other_env_reads = [
+        for p in ["shared/appconfig_strategy_id", "shared/alerts_topic_arn"] :
+        "${local.arn_prefix.ssm}:parameter/showrunner/dev/${p}"
+      ]
     }
   }
 }
@@ -59,10 +67,26 @@ data "aws_iam_policy_document" "plan" {
     resources = ["${local.arn_prefix.ssm}:parameter/showrunner/secret/*"]
   }
 
+  # Decryption is denied except when Lambda does it on the caller's behalf to return a
+  # function's environment variables (names and endpoints only, never secrets). Without
+  # this, every plan showed a false `environment` diff on every function. SecureString
+  # parameters (decrypted via SSM) and Secrets Manager stay denied. ADR 0011.
   statement {
-    sid       = "DenyDecrypt"
+    sid       = "DenyDecryptExceptLambdaEnv"
     effect    = "Deny"
-    actions   = ["kms:Decrypt", "secretsmanager:GetSecretValue"]
+    actions   = ["kms:Decrypt"]
+    resources = ["*"]
+    condition {
+      test     = "StringNotEquals"
+      variable = "kms:ViaService"
+      values   = ["lambda.${var.region}.amazonaws.com"]
+    }
+  }
+
+  statement {
+    sid       = "DenySecretsManager"
+    effect    = "Deny"
+    actions   = ["secretsmanager:GetSecretValue"]
     resources = ["*"]
   }
 }
@@ -189,15 +213,28 @@ data "aws_iam_policy_document" "apply" {
 
   # Best-effort isolation between environments for services that support resource
   # tags. Production would use separate accounts (ADR 0002).
+  # The listed reads are carved out of this deny, and the next statement denies every
+  # other action on them, so the only thing allowed is reading those few values.
   statement {
-    sid       = "DenyOtherEnvResources"
-    effect    = "Deny"
-    actions   = ["*"]
-    resources = ["*"]
+    sid           = "DenyOtherEnvResources"
+    effect        = "Deny"
+    actions       = ["*"]
+    resources     = length(each.value.other_env_reads) == 0 ? ["*"] : null
+    not_resources = length(each.value.other_env_reads) == 0 ? null : each.value.other_env_reads
     condition {
       test     = "StringEquals"
       variable = "aws:ResourceTag/env"
       values   = [each.value.other_env]
+    }
+  }
+
+  dynamic "statement" {
+    for_each = length(each.value.other_env_reads) == 0 ? [] : [1]
+    content {
+      sid         = "OtherEnvOutputsReadOnly"
+      effect      = "Deny"
+      not_actions = ["ssm:GetParameter", "ssm:GetParameters"]
+      resources   = each.value.other_env_reads
     }
   }
 }

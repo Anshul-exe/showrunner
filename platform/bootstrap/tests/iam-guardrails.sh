@@ -18,12 +18,22 @@ check() { # role action resource expected [context]
 }
 pb() { echo "ContextKeyName=iam:PermissionsBoundary,ContextKeyValues=$1,ContextKeyType=string"; }
 it() { echo "ContextKeyName=ec2:InstanceType,ContextKeyValues=$1,ContextKeyType=string"; }
+env() { echo "ContextKeyName=aws:ResourceTag/env,ContextKeyValues=$1,ContextKeyType=string"; }
+via() { echo "ContextKeyName=kms:ViaService,ContextKeyValues=$1,ContextKeyType=string"; }
+P="arn:aws:ssm:us-east-1:${A}:parameter"; K="arn:aws:kms:us-east-1:${A}:key/any"
 
 check showrunner-ci-plan s3:GetObject "$B/bootstrap/terraform.tfstate" allowed
 check showrunner-ci-plan s3:PutObject "$B/bootstrap/terraform.tfstate" denied
 check showrunner-ci-plan s3:PutObject "$B/shared/dev/terraform.tfstate.tflock" allowed
 check showrunner-ci-plan ssm:GetParameter "arn:aws:ssm:us-east-1:${A}:parameter/showrunner/secret/x" denied
 check showrunner-ci-plan ec2:CreateVpc "*" denied
+# ADR 0011: decrypt only via Lambda (function env vars), never via SSM or directly.
+# Via Lambda the result is implicitDeny, not explicitDeny: our deny no longer applies and
+# the grant comes from the aws/lambda key policy, which the simulator doesn't evaluate.
+check showrunner-ci-plan kms:Decrypt "$K" implicitDeny "$(via lambda.us-east-1.amazonaws.com)"
+check showrunner-ci-plan kms:Decrypt "$K" denied "$(via ssm.us-east-1.amazonaws.com)"
+check showrunner-ci-plan kms:Decrypt "$K" denied
+check showrunner-ci-plan secretsmanager:GetSecretValue "arn:aws:secretsmanager:us-east-1:${A}:secret:x" denied
 check showrunner-ci-apply-dev s3:PutObject "$B/shared/dev/terraform.tfstate" allowed
 check showrunner-ci-apply-dev s3:PutObject "$B/shared/prod/terraform.tfstate" denied
 check showrunner-ci-apply-dev s3:PutObject "$B/bootstrap/terraform.tfstate" denied
@@ -39,6 +49,12 @@ check showrunner-ci-apply-dev iam:PutRolePolicy "$R/showrunner-ci-apply-prod" de
 check showrunner-ci-apply-prod ec2:RunInstances "arn:aws:ec2:us-east-1:${A}:instance/big" denied "$(it m7i-flex.large)"
 check showrunner-ci-apply-prod ec2:RunInstances "arn:aws:ec2:us-east-1:${A}:instance/nat" allowed "$(it t4g.micro)"
 check showrunner-ci-apply-prod s3:PutObject "$B/ops-core/terraform.tfstate" allowed
+# ADR 0010: ops-core may read exactly two dev outputs, and do nothing else to them
+check showrunner-ci-apply-prod ssm:GetParameter "$P/showrunner/dev/shared/alerts_topic_arn" allowed "$(env dev)"
+check showrunner-ci-apply-prod ssm:GetParameter "$P/showrunner/dev/shared/appconfig_strategy_id" allowed "$(env dev)"
+check showrunner-ci-apply-prod ssm:PutParameter "$P/showrunner/dev/shared/alerts_topic_arn" denied "$(env dev)"
+check showrunner-ci-apply-prod ssm:GetParameter "$P/showrunner/dev/shared/vpc_id" denied "$(env dev)"
+check showrunner-ci-apply-dev ssm:GetParameter "$P/showrunner/prod/shared/alerts_topic_arn" denied "$(env prod)"
 check showrunner-ci-review-agents bedrock:InvokeModel "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-lite-v1:0" allowed
 check showrunner-ci-review-agents bedrock:InvokeModel "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-pro-v1:0" denied
 check showrunner-ci-review-agents s3:GetObject "$B/bootstrap/terraform.tfstate" denied

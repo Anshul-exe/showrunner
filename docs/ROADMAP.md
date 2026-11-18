@@ -16,7 +16,7 @@ six-month goals there, so each tier is also a plan for those goals.
 | scenario S1 only | case files S3 (security-group drift), S4 (DNS) with flow logs, Resolver query logs, Reachability Analyzer | 2 |
 | local traffic script, 4 rps cap (Lambda quota 10) | viewer simulation + k6 breaking-point test, event mode | 3 |
 | budgets + a written cost model | cost report by customer tag, park/unpark, handover note, MCP server | 3 |
-| deterministic triage (Bedrock not yet enabled on the account) | model triage, with an eval set of past incidents before trusting its ranking | as soon as Bedrock answers |
+| model triage (Nova Lite, since 18/11/2026), deterministic rules as the fallback | an eval set of past incidents before trusting its ranking | 2 |
 | SNS email escalation | pager integration, on-call rota file, Slack approvals | 3 |
 
 ## Tier 2, in this order (about half a day each)
