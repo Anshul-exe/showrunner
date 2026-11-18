@@ -22,7 +22,7 @@ repo's Issues filtered by `label:incident`, and PR #3 (plan comments).
 |---|---|---|---|
 | 0:00 | Frame | README: the four bullets, the diagram, the measured timings | - |
 | 1:00 | Start S1 | `./sr demo s1 start`: "the vendor gets 1.5 s slower for acme-tv; this pages in ~1-2 minutes" | [S1 recording](demo/S1.md) |
-| 1:30 | Self-service | a third customer, live: the commands below open a PR with one 10-line file; while CI plans it, show `acme-tv/dev.yaml` -> one module; then the plan comment: 61 to add, policy checks incl. **readiness** (every dependency alarmed, every alarm has a runbook) | PR #3 comments; local plan on 18/11/2026: 61 to add, 14/14 policies pass |
+| 1:30 | Self-service | a fourth customer, live: the commands below open a PR with one 10-line file; while CI plans it, show `acme-tv/dev.yaml` -> one module; then the plan comment: 61 to add, policy checks incl. **readiness** (every dependency alarmed, every alarm has a runbook) and the apply-role access check | [PR #5](https://github.com/Anshul-exe/showrunner/pull/5): the third customer, lumen-kids, added the same way (plan comments per stack) |
 | 3:00 | Supply chain | PR #4: a "routine" dependency whose postinstall hunts for credentials; the `supply-chain` check: scripts off, then run on purpose: finds nothing, harden-runner blocks `exfil.example.com` | [recording](demo/supply-chain.md) |
 | 4:30 | Incident | the issue: evidence table, H1 vendor confirmed, **the cache refuted with Valkey's µs**, A1 with the exact diff, blast radius and rollback; comment `/approve A1`; `./sr demo watch` p95 falls with no deploy; the audit rows | issue #2 (17/11/2026 run), [S1 recording](demo/S1.md) |
 | 8:00 | Roadmap | [ROADMAP.md](ROADMAP.md): tiers 2-3 against the three six-month goals | - |

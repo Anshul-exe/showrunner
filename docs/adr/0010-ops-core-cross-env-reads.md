@@ -51,7 +51,8 @@ that stack may make each one, passing each parameter's tags as `aws:ResourceTag/
 context (the simulator doesn't look tags up itself, and a tag condition was the cause
 here). A deny fails the plan job and is listed in the plan comment. Negative control on
 18/11/2026, before the fix: it reported exactly the two parameters CI had failed on, as
-`explicitDeny`; after the fix, 4/4 reads allowed.
+`explicitDeny`; after the fix, 4/4 reads allowed. In CI, first run on [PR #5](https://github.com/Anshul-exe/showrunner/pull/5):
+every stack's plan comment carries the line, ops-core 4/4 allowed.
 
 ## When we'd decide differently
 

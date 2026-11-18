@@ -28,8 +28,9 @@ at runtime (CLAUDE.md rule 2), and the module tests keep it that way.
 - `iam-guardrails.sh`: decrypt via SSM or direct is `explicitDeny`; via Lambda it's no
   longer denied by us (the grant comes from the `aws/lambda` key policy, which the
   simulator doesn't evaluate, so it reports `implicitDeny`)
-- the first PR plan after the change: see `docs/demo/model-triage.md` for the PR link
-  and whether `+ variables` still appears
+- the first PR plan after the change ([PR #5](https://github.com/Anshul-exe/showrunner/pull/5),
+  18/11/2026): acme-tv, nordic-sports and ops-core plan as "no changes"; on PR #3 every
+  function in them had shown `+ variables`
 
 ## When we'd decide differently
 
