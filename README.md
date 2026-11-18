@@ -37,28 +37,27 @@ flowchart LR
   SF --> AU[(audit table)] --> PIR[post-incident review]
 ```
 
-Measured on `dev` with scenario S1 (the vendor gets 1.5 s slower for `acme-tv`):
+Measured on `dev` with scenario S1 (the vendor gets 1.5 s slower for `acme-tv`), end to
+end on **18/11/2026**, issue [#6](https://github.com/Anshul-exe/showrunner/issues/6)
+(times from the alarm at 10:10:03 UTC; [full record](docs/demo/incident.md)):
 
-| Step | Time | Run |
+| Step | Time | |
 |---|---|---|
-| chaos on -> vendor alarm | 66 s | 17/11/2026 23:09:57 -> 23:11:03 UTC |
-| alarm -> GitHub issue | 3 s | 23:11:06 |
-| second alarm (API p95) joined to the same issue, not a new one | +37 s | 23:11:40 |
-| loop start -> analysis + proposal A1 posted | 10.7 s | 23:17:13 -> 23:17:24 (re-run after a fix, below) |
-| flag `vendor_fallback` deployed (lane 1, no deploy) | 15 s | 17/11/2026 22:20, day-1 run |
-| first fallback request after the flag | 17 s | same run; recs p95 on fallback 12.3 ms (52 requests) |
+| chaos on -> vendor alarm | 113 s | AppConfig `chaos` #13 started 10:08:10 |
+| alarm -> GitHub issue | +4 s | |
+| alarm -> analysis + proposal A1 | +13 s | model triage (Nova Lite) + verifier |
+| a human comments `/approve A1` | +85 s | the only wait that's a person |
+| alarm -> fallback flag live | **+152 s** | approve.yml 59 s (two jobs on fresh runners), AppConfig #14 live in 6.4 s, no deploy |
+| alarm -> recovered | **+334 s** | API p95 1,620 ms -> 32 ms (two clean minutes in a row) |
+| post-incident review posted, issue closed | +334 s | from the audit trail |
 
-The analysis named the vendor (1,633 ms vs an expected 250 ms) and **ruled out the cache
-with numbers**: Valkey at 2.1 ms client-side, 1,238 µs server-side p99, 0.1% of the API's
-p95. Bedrock wasn't enabled on the new account during that run, so triage ran on
-deterministic rules and the issue says so; the verifier's verdicts are numeric checks
-either way. Bedrock answered on 18/11/2026: one triage through the deployed Lambda on
-the same evidence used Nova Lite (1,265 tokens in, 222 out, $0.00013;
-[record](docs/demo/model-triage.md)).
+The analysis named the vendor (1,612 ms vs 110 ms before) and **ruled out the cache
+with numbers**: Valkey at 2.4 ms client-side, 1,025 µs server-side p99, 0.1% of the
+API's p95; DynamoDB at 0.6%. Every step, the approval and the change are in the issue
+and the audit table. `./sr demo s1 stop` then reset chaos (#15) and the flag (#16).
 
-**Not yet run end to end:** `/approve A1` -> act -> recovery check -> post-incident
-review on GitHub. Every step is unit-tested (including act refusing anything but the
-approved proposal), and the approval needs a human, on purpose.
+The first S1 runs (17/11/2026, issues #1 and #2) measured alarm -> issue 3 s and
+start -> proposal 10.7 s, and escalated on purpose when nobody approved within 30 min.
 
 **The first real run got it wrong, and that's in the record.** Traffic had started
 only ~1.5 minutes before the chaos, so the "baseline" was a single minute: the first
@@ -96,18 +95,25 @@ detection. Details: [docs/COST.md](docs/COST.md).
 
 ## Built vs roadmap
 
-Built (the 2-day core): two customers on `dev`, per-dependency metrics and alarms,
-runbooks, the three change lanes, scenario S1 with a recorded fallback
-([docs/demo/S1.md](docs/demo/S1.md)), the incident loop up to the approval, CI/CD with
-plan comments, `sr preflight`, the supply-chain demo (PR #4: a malicious dependency finds
-nothing and its call home is blocked, [record](docs/demo/supply-chain.md)), and the
-incident run record ([docs/demo/incident.md](docs/demo/incident.md)).
+Built (the 2-day core): customers on `dev` (a third, `lumen-kids`, added by PR and
+applied by CI), per-dependency metrics and alarms, runbooks, the three change lanes,
+scenario S1 with a recorded fallback ([docs/demo/S1.md](docs/demo/S1.md)), the incident
+loop end to end (alarm, issue, proposal, human `/approve`, mitigation, recovery, PIR:
+[docs/demo/incident.md](docs/demo/incident.md)), Bedrock triage with a verifier, CI/CD
+with plan comments and an apply-role access check, `sr preflight`, and the supply-chain
+demo (PR #4: a malicious dependency finds nothing and its call home is blocked,
+[record](docs/demo/supply-chain.md)).
 
-**Not built yet** (in order, [docs/ROADMAP.md](docs/ROADMAP.md)): customer pages on
-CloudFront (code and tests done; waiting for AWS to verify the new account for
-CloudFront), the self-service readiness gate, PR review agents, network case files
+Tier 2 so far: the self-service readiness gate (built); customer pages on CloudFront
+(code and tests done, off until AWS verifies the account for CloudFront); PR review
+agents (`iac-security` + verifier, [ADR 0013](docs/adr/0013-review-agents.md)): built
+and recorded on the seeded change with the workflow's steps run locally
+([docs/demo/review-agents.md](docs/demo/review-agents.md)); **not yet run on a real PR**.
+
+**Not built yet** (in order, [docs/ROADMAP.md](docs/ROADMAP.md)): network case files
 (S3/S4), canary deploys and container images with provenance, then prod, SLO burn-rate
-alarms, load tests that find the breaking point, cost reports and an MCP server.
+alarms, load tests that find the breaking point, cost reports, an MCP server, and the
+other four review specialists.
 
 ## Repo map
 

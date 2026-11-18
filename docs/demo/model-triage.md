@@ -43,3 +43,40 @@ decides the verdicts with numeric checks, and nothing runs without `/approve`.
 
 An eval set: the S1 evidence from both runs plus later incidents, scored for "right
 component first" on the rules and the model (ROADMAP).
+
+## Issue #6 padding, and the tightened instructions (18/11/2026)
+
+In the end-to-end run (issue [#6](https://github.com/Anshul-exe/showrunner/issues/6),
+10:10 UTC) triage returned three hypotheses: H1 `vendor-recs` (right, confirmed by the
+checks), H2 `lambda` citing only the API latency, and H3 `unknown` citing seven of the ten
+evidence items. Both extras came back "inconclusive (decided by model)": filler that
+the on-call has to read past.
+
+Changes:
+- `ops/agents/triage.md`: 1 to 3 hypotheses, fewer is better; one per component; cite
+  only the evidence that points to that component, at most 4; the alarm and API latency
+  are the symptom; no catch-all; `unknown` removed from the allowed components.
+- code (`sanitize_hypotheses`), whatever the model says: drops `unknown`, duplicates,
+  hypotheses citing more than 4 items, and hypotheses whose cites are all symptom
+  evidence (alarm, API latency).
+- verifier: a hypothesis no check can test gets the verdict **not checkable**: one line in
+  the issue, not sent to the model, never acted on.
+- the verify audit row now says why the model wasn't used, when it isn't.
+
+Re-run on issue #6's exact evidence (from the execution history), same handler code run
+locally with the new instructions, at 11:15 UTC, **2 model calls** (capped in the script):
+
+| | issue #6 (old instructions) | re-run (new instructions) |
+|---|---|---|
+| H1 | `vendor-recs` (E1, E5): CONFIRMED by checks | `vendor-recs` (E1, E5): CONFIRMED by checks |
+| H2 | `lambda` (E2): inconclusive, decided by model | `lambda` (E1, E2): **not checkable**; dropped by the symptom-only rule added after this run |
+| H3 | `unknown` (E3, E4, E6-E10): inconclusive, decided by model | none |
+| proposal | A1 `vendor-fallback-on` | A1 `vendor-fallback-on` |
+| triage tokens | 1,074 + 242 | 1,183 + 199 ($0.000119) |
+
+The model followed "no catch-all", but still offered `lambda` from the symptom alone, so
+that rule is now enforced in code too. Applied to the re-run's saved output (no further
+call), only H1 remains. The verifier's call in the re-run didn't produce a usable answer
+(the checks decided, as designed); the reason wasn't recorded then, and is now. Audit
+rows: `modelcheck-20261118b-acme-tv-dev-20261118T1010`. Live in the loop after the next
+`./sr deploy incident`.

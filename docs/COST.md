@@ -49,6 +49,7 @@ except where marked.
 | CloudTrail (one trail, management events) + its S3 bucket | < $0.10 | first copy of management events is free |
 | Incident loop (day 2): Step Functions, 5 Lambdas, audit table, EventBridge rule | < $0.10 | ~30-60 transitions = ~$0.0015 per incident; idle costs nothing |
 | Bedrock Nova Lite (enabled 18/11/2026; one triage call measured at $0.00013) | < $0.05 | ~3K tokens in, ~1K out per agent call = ~$0.0004; capped by the $5 Bedrock budget |
+| PR review agents (tier 2): Nova Lite + the `sr-ops-agent-budget` counter table | < $0.40 | measured $0.00017 per review (1,541 + 328 tokens, 18/11/2026); hard caps 2 calls/run and 40 calls/day: worst case 1,200 calls x ~$0.0003 = ~$0.36/month; the table is on-demand, one item per day, 7-day TTL |
 | **Total** | **~$17-22** | target in the brief: $22-28 |
 
 Each new customer adds ~$0.60-2 (its 6 metrics, 5 alarm metrics, a table, a function):

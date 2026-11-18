@@ -1,4 +1,49 @@
-# Incident loop, recorded run (fallback for the live demo)
+# Incident loop, recorded runs (fallback for the live demo)
+
+## 18/11/2026: the whole loop, issue #6 (the fallback for the demo)
+
+Scenario S1 on **dev** (acme-tv's vendor +1,500 ms), traffic from 09:58 to 10:18 UTC at
+2 rps (`./sr demo traffic --minutes 20`). Record: issue
+[#6](https://github.com/Anshul-exe/showrunner/issues/6) (analysis, approval, execution
+note, post-incident review) and the audit table (`pk = acme-tv-dev-20261118T1010`).
+
+| UTC | +s from alarm | Event |
+|---|---|---|
+| 10:08:10 | -113 | `./sr demo s1 start`: AppConfig `chaos` deployment #13 |
+| 10:10:03 | 0 | `sr-acme-tv-dev-vendor-latency` -> ALARM (2 of 3 minutes over 1 s: 1,657 and 1,612 ms) |
+| 10:10:07 | +4 | issue #6 opened by the GitHub App |
+| 10:10:15 | +13 | analysis + proposal A1 `vendor-fallback-on` posted: triage and verifier both on Nova Lite (triage 1,074 + 242 tokens) |
+| 10:10:40 | +37 | `sr-acme-tv-dev-api-latency` -> ALARM, joined to #6 |
+| 10:11:28 | +85 | the user comments `/approve A1` |
+| 10:11:34 | +91 | approve.yml starts: job 1 (commenter's permission + CODEOWNERS, no cloud access) 25 s, job 2 (OIDC, send the decision) 24 s |
+| 10:12:28 | +145 | act: AppConfig `flags` deployment #14 (`vendor_fallback: false -> true`) |
+| 10:12:35 | +152 | **fallback live** (6.4 s), "executed" note on the issue |
+| 10:15:36 | +333 | recovery check: API p95 32.5 and 31.8 ms in two complete minutes (was 1,620 ms) |
+| 10:15:37 | +334 | **post-incident review posted, issue closed** |
+| 10:20:28 | | `./sr demo s1 stop`: chaos back to defaults (#15) |
+| 10:21:40 | | flags back to defaults (#16): the mitigation undone |
+
+Where the 152 s went: 85 s waiting for a human (by design), 59 s for approve.yml (most of
+it two fresh GitHub runners starting), 7 s to make the change. Recovery took ~3 minutes
+after the flag because the check wants two complete clean minutes of API p95.
+
+What the analysis said: H1 `vendor-recs` **CONFIRMED** by checks (1,612 ms vs 110 ms,
+the median of 9 minutes before the alarm; same order as the API's 1,620 ms); `valkey`
+**REFUTED** (2.4 ms client-side, 0.1% of the API's p95; server-side p99 1,025 µs);
+`dynamodb` **REFUTED** (10 ms, 0.6%). The model also added H2 `lambda` and H3 `unknown`
+(citing all the remaining evidence), both inconclusive with no check: padding, tightened
+since (`ops/agents/triage.md`; comparison in [model-triage.md](model-triage.md)).
+
+Seen in this run and fixed after it:
+- the reset at 10:21:40 wasn't on the record. Now every operator change to `flags`
+  checks whether it undid an incident's mitigation and, if so, writes an `undo` audit
+  row and comments on the issue (closed or not). Backfilled for #6 with
+  `./sr incident undo-check acme-tv` (comment at 10:47 UTC, deployment #16).
+- the PIR's problem-management line counted the test runs ("fired 5 times in 30 days");
+  incidents started by `sr demo` are now counted separately.
+
+## 17/11/2026: first runs, issues #1 and #2
+
 
 Run: 17/11/2026, 23:08–23:47 UTC on **dev**, scenario S1 (acme-tv's vendor +1,500 ms)
 with `./sr demo traffic --minutes 25 --rps 3`. The record is on GitHub:
@@ -22,7 +67,7 @@ with the reason) and issue [#2](https://github.com/Anshul-exe/showrunner/issues/
 | 23:17:24 | analysis + proposal A1 `vendor-fallback-on` posted (**10.7 s** after the start): open 3.6 s, evidence 3.2 s, triage 1.5 s, verify 1.6 s |
 | 23:47:23 | no `/approve` in 30 min (nobody was awake: by design the loop doesn't approve itself) -> **escalation**: comment, `escalated` label, SNS email; nothing changed |
 
-Not in this run: `/approve A1` -> act -> recovery check -> post-incident review. The
+Not in this run (done on 18/11, above): `/approve A1` -> act -> recovery check -> post-incident review. The
 day-1 run measured the action itself: the flag deployed in 15 s and the first request
 was served from the fallback 17 s later, recs p95 12.3 ms ([S1](S1.md)).
 

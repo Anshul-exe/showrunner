@@ -28,6 +28,9 @@ six-month goals there, so each tier is also a plan for those goals.
    by PR.
 3. **Review agents** (P6, P7, P8): one specialist (`supply-chain` or `iac-security`)
    plus the verifier on PRs; a seeded PR with one confirmed and one refuted finding.
+   *Status 18/11/2026:* `iac-security` + verifier built (ADR 0013); recorded on the seeded
+   change (1 confirmed, 2 refuted, 1 model call); first run on a real PR after the
+   `sr-ops-agent-budget` table is applied.
 4. **Network case files** (P17): S3 security-group drift and S4 DNS, with the network
    evidence tools added to the incident loop.
 5. **Safe deploys** (P7, P12): CodeDeploy canary + scenario S2 (bad deploy rolled back
