@@ -40,8 +40,9 @@ class EC2:
 
     def describe_network_insights_analyses(self, **kw):
         a = {"Status": self.status, "NetworkPathFound": self.found}
-        if not self.found:
-            a["Explanations"] = [{"ExplanationCode": "ENI_SG_RULES_MISMATCH", "SecurityGroup": {"Id": "sg-cache"}}]
+        if not self.found:  # the documented shape for this code (EC2 API Explanation)
+            a["Explanations"] = [{"ExplanationCode": "ENI_SG_RULES_MISMATCH", "SecurityGroups": [{"Id": "sg-cache"}],
+                                  "NetworkInterface": {"Id": "eni-c1"}}]
         return {"NetworkInsightsAnalyses": [a]}
 
     def delete_network_insights_analysis(self, **kw):
@@ -140,7 +141,7 @@ def test_reachability_reports_the_block_and_cleans_up():
     ec2 = EC2([], found=False)
     r = network.reachability(ec2, "eni-l2", "eni-c1", 6379, take=lambda: None, sleep=lambda s: None)
     assert r["reachable"] is False and r["blocked_by"][0] == {
-        "code": "ENI_SG_RULES_MISMATCH", "component": "sg-cache", "security_group": "sg-cache"}
+        "code": "ENI_SG_RULES_MISMATCH", "component": "eni-c1", "security_group": "sg-cache"}
     assert ec2.deleted == ["nia-1", "nip-1"]
 
 
@@ -154,7 +155,7 @@ def test_reachability_failed_analysis_still_cleans_up():
 def test_reachability_daily_cap_and_no_counter_means_no_run():
     ec2 = EC2([])
     capped = network.daily_counter(Counter(ConditionalCheckFailedException("x")), "t", now=lambda: NOW)
-    with pytest.raises(network.Unavailable, match="daily cap of 5"):
+    with pytest.raises(network.Unavailable, match="daily cap of 2"):
         network.reachability(ec2, "a", "b", 6379, take=capped)
     broken = network.daily_counter(Counter(RuntimeError("AccessDenied")), "t", now=lambda: NOW)
     with pytest.raises(network.Unavailable, match="no run without it"):
@@ -163,7 +164,7 @@ def test_reachability_daily_cap_and_no_counter_means_no_run():
     c = Counter()
     network.daily_counter(c, "sr-ops-agent-budget", now=lambda: NOW)()
     kw = c.calls[0]
-    assert kw["Key"] == {"pk": {"S": "reachability#2026-11-19"}} and kw["ExpressionAttributeValues"][":cap"] == {"N": "5"}
+    assert kw["Key"] == {"pk": {"S": "reachability#2026-11-19"}} and kw["ExpressionAttributeValues"][":cap"] == {"N": "2"}
 
 
 # ------------------------------------------------------------------ S3: security-group drift

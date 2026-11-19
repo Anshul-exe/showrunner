@@ -26,7 +26,7 @@ NETWORK_EVENTS = (
     "ReplaceNetworkAclEntry", "DeleteNetworkAclEntry",
 )
 CACHE_PORTS = (6379, 6380)
-REACH_DAILY_CAP = 5
+REACH_DAILY_CAP = 2  # $0.10 an analysis: worst case $6/month
 REACH_TAG = "reachability"
 
 
@@ -160,9 +160,14 @@ def reachability(ec2, src_eni: str, dst_eni: str, port: int, take: Callable[[], 
             raise Unavailable(f"Reachability Analyzer: {a['Status']} {a.get('StatusMessage', '')}".strip())
         blocked = []
         for e in a.get("Explanations", []) or []:
-            comp = (e.get("Component") or e.get("SecurityGroup") or {}).get("Id")
-            sg = (e.get("SecurityGroup") or {}).get("Id")
-            blocked.append({"code": e.get("ExplanationCode"), "component": comp, "security_group": sg})
+            # ENI_SG_RULES_MISMATCH names the groups in `SecurityGroups` (a list) and the
+            # interface in `NetworkInterface`; other codes use `SecurityGroup`/`Component`.
+            sgs = [g.get("Id") for g in e.get("SecurityGroups") or [] if g.get("Id")]
+            if (e.get("SecurityGroup") or {}).get("Id"):
+                sgs.insert(0, e["SecurityGroup"]["Id"])
+            comp = (e.get("Component") or e.get("NetworkInterface") or {}).get("Id")
+            blocked.append({"code": e.get("ExplanationCode"), "component": comp,
+                            "security_group": ", ".join(sgs) or None})
         return {"reachable": bool(a.get("NetworkPathFound")), "port": port, "blocked_by": blocked[:5],
                 "seconds": round(time.monotonic() - t0, 1)}
     finally:  # nothing left behind (the result is in the evidence/audit record)

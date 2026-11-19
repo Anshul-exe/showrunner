@@ -222,8 +222,9 @@ class Collector:
         content, version = appconfig_change.deployed(self.c.appconfig, target, "flags")
         defaults = appconfig_change.DEFAULTS["flags"]
         off = {k: v for k, v in content.items() if k in defaults and defaults[k] != v}
+        shown = {k: v for k, v in content.items() if not (k in appconfig_change.OPTIONAL["flags"] and not v)}
         self.add("runtime_flags", f"Runtime flags now (AppConfig `flags` v{version}): "
-                 + ", ".join(f"{k}={v}" for k, v in content.items()) + "; "
+                 + ", ".join(f"{k}={v}" for k, v in shown.items()) + "; "
                  + ("all at their defaults." if not off else "differ from defaults: " + ", ".join(off) + "."),
                  f"AppConfig application sr-{self.customer}-{self.env}", flags=content, version=version,
                  at_defaults=not off)

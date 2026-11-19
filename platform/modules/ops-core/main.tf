@@ -245,8 +245,21 @@ data "aws_iam_policy_document" "evidence" {
 
   statement {
     sid       = "ReachabilityAnalyzerRun"
-    actions   = ["ec2:CreateNetworkInsightsPath", "ec2:StartNetworkInsightsAnalysis", "ec2:CreateTags"]
+    actions   = ["ec2:CreateNetworkInsightsPath", "ec2:StartNetworkInsightsAnalysis"]
     resources = ["${local.arn.ec2}:network-insights-path/*", "${local.arn.ec2}:network-insights-analysis/*", "${local.arn.ec2}:network-interface/*"]
+  }
+
+  # Tags only while creating its own path/analysis (the `sr=reachability` tag that the
+  # cleanup statement below requires); it can't tag anything else.
+  statement {
+    sid       = "TagOwnReachabilityOnCreate"
+    actions   = ["ec2:CreateTags"]
+    resources = ["${local.arn.ec2}:network-insights-path/*", "${local.arn.ec2}:network-insights-analysis/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "ec2:CreateAction"
+      values   = ["CreateNetworkInsightsPath", "StartNetworkInsightsAnalysis"]
+    }
   }
 
   statement {
