@@ -24,8 +24,10 @@ class VendorClient:
         self.customer = customer
         self.timeout_s = timeout_s
 
-    def recommendations(self, title_id: str) -> list[str]:
-        url = f"{self.base_url}/recs?{urllib.parse.urlencode({'title': title_id})}"
+    def recommendations(self, title_id: str, base_url: str | None = None) -> list[str]:
+        """`base_url` overrides the configured URL (the runtime flag `vendor_url`)."""
+        base = (base_url or self.base_url).rstrip("/")
+        url = f"{base}/recs?{urllib.parse.urlencode({'title': title_id})}"
         req = urllib.request.Request(
             url, headers={"x-customer": self.customer, "accept": "application/json"}
         )

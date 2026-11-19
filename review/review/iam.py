@@ -12,6 +12,11 @@ from dataclasses import dataclass
 
 # Actions with no resource type in the Service Authorization Reference: `Resource: "*"`
 # is the only valid form, so a wildcard there is not a finding (ADR 0008).
+# Exact action names only, never patterns: `ec2:Describe*` would also cover actions added
+# later, unchecked. Each entry was checked against the reference's "Resource types"
+# column (machine-readable copy: https://servicereference.us-east-1.amazonaws.com/).
+# An action that has a resource type (e.g. ec2:GetManagedPrefixListEntries: prefix-list,
+# logs:GetQueryResults: log-group) never goes here: scope it instead.
 NO_RESOURCE_TYPE = {
     "states:SendTaskSuccess", "states:SendTaskFailure", "states:SendTaskHeartbeat",
     "sts:GetCallerIdentity", "ecr:GetAuthorizationToken", "cloudwatch:PutMetricData",
@@ -19,6 +24,18 @@ NO_RESOURCE_TYPE = {
     "xray:PutTelemetryRecords", "ec2:DescribeNetworkInterfaces", "ec2:CreateNetworkInterface",
     "ec2:DeleteNetworkInterface", "logs:DescribeLogGroups", "ssm:DescribeParameters",
     "appconfig:ListApplications", "cloudtrail:LookupEvents", "elasticache:DescribeServerlessCaches",
+    # The incident loop's network evidence (ADR 0014), checked 19/11/2026 against
+    # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazonec2.html
+    "ec2:DescribeSecurityGroups", "ec2:DescribeNetworkInsightsAnalyses", "ec2:DescribeNetworkInsightsPaths",
+    "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls", "ec2:DescribeVpcs",
+    "ec2:DescribeVpcEndpoints", "ec2:DescribeVpcEndpointServiceConfigurations", "ec2:DescribeInstances",
+    "ec2:DescribeInternetGateways", "ec2:DescribeNatGateways", "ec2:DescribeAddresses",
+    "ec2:DescribePrefixLists", "ec2:DescribeManagedPrefixLists", "ec2:DescribeVpcPeeringConnections",
+    "ec2:DescribeAvailabilityZones", "ec2:DescribeRegions",
+    # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazonvpcreachabilityanalyzer.html
+    "tiros:CreateQuery", "tiros:GetQueryAnswer", "tiros:GetQueryExplanation",
+    # https://docs.aws.amazon.com/service-authorization/latest/reference/list_amazoncloudwatchlogs.html
+    "logs:StopQuery",
 }
 
 
@@ -34,7 +51,8 @@ class Statement:
 
     @property
     def wildcard_action(self) -> bool:
-        return any(a == "*" or a.endswith(":*") for a in self.actions) or bool(self.not_actions)
+        # any pattern counts (`s3:*`, `ec2:Get*`, `iam:*Policy`): it covers actions nobody checked
+        return any("*" in a or "?" in a for a in self.actions) or bool(self.not_actions)
 
     @property
     def wildcard_resource(self) -> bool:

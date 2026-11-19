@@ -48,3 +48,45 @@ def with_change(minutes_before=8, at_defaults=False):
         ev[7]["data"]["flags"]["catalog_ttl_s"] = 5
     ev[7]["data"]["at_defaults"] = at_defaults
     return ev
+
+
+NET_ACTIONS = ACTIONS[:1] + [
+    {"id": "rollback-last-appconfig-deployment", "lane": "runtime", "applies_to": "config-change",
+     "appconfig": {"profile": "flags", "rollback": True}, "blast_radius": "One customer env.", "rollback": "Redeploy it."},
+    {"id": "reapply-shared-stack", "lane": "change", "applies_to": "network", "pipeline": "gh workflow run apply.yml",
+     "blast_radius": "The env's shared network.", "rollback": "None needed."},
+]
+
+
+def s3():
+    """S3: the Lambda -> Valkey rule revoked by hand. Valkey calls fail, the API slows."""
+    ev = s1()
+    ev[2] = _dep("E3", "valkey", 1000.0, 1.5, errors=40)
+    ev[4] = _dep("E5", "vendor-recs", 96.0, 95.0)
+    ev[1]["data"]["now"] = 1400.0
+    ev += [
+        {"id": "E10", "kind": "sg_drift", "summary": "DRIFT: the cache security group no longer lets catalog-api in",
+         "source": "test", "data": {"drift": True, "missing_ports": [6379, 6380], "rules": 0}},
+        {"id": "E11", "kind": "network_changes", "summary": "RevokeSecurityGroupIngress by someone", "source": "test",
+         "data": {"changes": []}},
+        {"id": "E12", "kind": "flow_rejects", "summary": "52 rejects", "source": "test",
+         "data": {"now": 52, "baseline": 0, "surge": True}},
+        {"id": "E13", "kind": "reachability", "summary": "NOT reachable", "source": "test",
+         "data": {"reachable": False, "blocked_by": [{"code": "ENI_SG_RULES_MISMATCH"}]}},
+    ]
+    return ev
+
+
+def s4(dns_hit=True):
+    """S4: a flags deployment set vendor_url to a typo'd host 6 min before the alarm."""
+    ev = s1()
+    ev[4] = _dep("E5", "vendor-recs", 30.0, 95.0, errors=60)
+    ev[6]["data"]["changes"] = [{"deployment": 21, "state": "COMPLETE", "started": "10:00:00",
+                                 "minutes_before_alarm": 6, "description": "point at the new vendor host"}]
+    host = "https://abc.lambda-ur.us-east-1.on.aws"
+    ev[7]["data"]["flags"]["vendor_url"] = host
+    ev[7]["data"]["at_defaults"] = False
+    names = [{"name": "abc.lambda-ur.us-east-1.on.aws", "rcode": "NXDOMAIN", "queries": 31}] if dns_hit else []
+    ev.append({"id": "E10", "kind": "dns_errors", "summary": "NXDOMAIN", "source": "test",
+               "data": {"total": 31 if dns_hit else 0, "names": names}})
+    return ev

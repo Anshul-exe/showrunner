@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from opslib import appconfig_change
+from opslib import appconfig_change, network
 
 DEPENDENCIES = ("valkey", "dynamodb", "vendor-recs")
 NAMESPACE = "Showrunner"
@@ -47,6 +47,11 @@ class Clients:
     appconfig: Any
     lambda_: Any
     cloudtrail: Any
+    ec2: Any = None
+    elasticache: Any = None
+    logs: Any = None
+    dynamodb: Any = None  # the Reachability Analyzer's daily run counter
+    budget_table: str = "sr-ops-agent-budget"
 
 
 def split_series(values: list[float], times: list[datetime] | None = None,
@@ -217,8 +222,9 @@ class Collector:
         content, version = appconfig_change.deployed(self.c.appconfig, target, "flags")
         defaults = appconfig_change.DEFAULTS["flags"]
         off = {k: v for k, v in content.items() if k in defaults and defaults[k] != v}
+        shown = {k: v for k, v in content.items() if not (k in appconfig_change.OPTIONAL["flags"] and not v)}
         self.add("runtime_flags", f"Runtime flags now (AppConfig `flags` v{version}): "
-                 + ", ".join(f"{k}={v}" for k, v in content.items()) + "; "
+                 + ", ".join(f"{k}={v}" for k, v in shown.items()) + "; "
                  + ("all at their defaults." if not off else "differ from defaults: " + ", ".join(off) + "."),
                  f"AppConfig application sr-{self.customer}-{self.env}", flags=content, version=version,
                  at_defaults=not off)
@@ -259,13 +265,98 @@ class Collector:
                  "CloudTrail LookupEvents ReadOnly=false", counts=dict(top))
 
 
+    # ------------------------------------------------------------------ network (Pillar 2b)
+    def network(self, end: datetime) -> None:
+        """S3's evidence: is the Lambda -> Valkey rule still there (live, vs Terraform's
+        declared rule), who changed network config (CloudTrail), are flows to the cache
+        port being REJECTed (flow logs, now vs the hour before), and, only when one of
+        those says "network", a Reachability Analyzer path check (capped, $0.10 a run)."""
+        if self.c.ec2 is None or not self.shared.get("lambda_security_group_id"):
+            return
+        client_sg = self.shared["lambda_security_group_id"]
+        cache_sg = network.cache_security_group(self.c.elasticache, self.shared["cache_name"])
+        drift = network.sg_rule_drift(self.c.ec2, cache_sg, client_sg)
+        if drift["drift"]:
+            text = (f"DRIFT: the cache security group no longer lets catalog-api in on port(s) "
+                    f"{', '.join(map(str, drift['missing_ports']))} (Terraform declares 6379-6380 from the Lambda "
+                    f"security group; {drift['rules']} rule(s) left).")
+        else:
+            text = "No drift: the cache security group still allows 6379-6380 from the Lambda security group, as declared."
+        self.add("sg_drift", text, f"EC2 DescribeSecurityGroups vs modules/cache (Terraform)", **drift)
+
+        changes = network.network_changes(self.c.cloudtrail, end - CHANGE_WINDOW, end)
+        for c in changes:
+            c["minutes_before_alarm"] = self._minutes_before(c["at"], end)
+            c["at"] = c["at"].astimezone(timezone.utc).strftime("%H:%M:%S")
+        text = ("none found (CloudTrail delivers 5-15 min late, so a change in the last minutes may not show yet)"
+                if not changes else "; ".join(
+                    f"{c['event']} at {c['at']} UTC ({c['minutes_before_alarm']:.0f} min before the alarm) by "
+                    f"`{c['by']}` on {', '.join(c['resources'][:2]) or '?'}" for c in changes[:5]))
+        self.add("network_changes", f"Security-group, route and NACL changes in the last 2 h: {text}.",
+                 "CloudTrail LookupEvents by EventName", changes=changes[:10])
+
+        flows = None
+        group = self.shared.get("flow_log_group")
+        if group and self.c.logs is not None:
+            now = network.flow_rejects(self.c.logs, group, end - NET_RECENT, end)
+            base = network.flow_rejects(self.c.logs, group, end - NET_RECENT - NET_BASELINE, end - NET_RECENT)
+            rate_now = now["total"] / (NET_RECENT.total_seconds() / 60)
+            rate_base = base["total"] / (NET_BASELINE.total_seconds() / 60)
+            surge = now["total"] >= 5 and rate_now >= 3 * max(rate_base, 0.1)
+            flows = {"now": now["total"], "baseline": base["total"], "rate_now_pm": round(rate_now, 1),
+                     "rate_baseline_pm": round(rate_base, 2), "surge": surge, "top": now["top"][:3]}
+            self.add("flow_rejects",
+                     f"VPC flow logs, REJECTed flows to Valkey (6379/6380): {now['total']} in the last "
+                     f"{NET_RECENT.seconds // 60} min ({rate_now:.1f}/min) vs {base['total']} in the hour before "
+                     f"({rate_base:.2f}/min){': a surge' if surge else ''}.",
+                     f"Logs Insights on {group}", **flows)
+
+        if not (drift["drift"] or (flows and flows["surge"])) or self.c.dynamodb is None:
+            return
+        pair = network.pick_path(self.c.ec2, client_sg, cache_sg)
+        if not pair:
+            self.add("reachability", "Reachability Analyzer: not run (no in-use Lambda or cache network interface).",
+                     "EC2 Reachability Analyzer", reachable=None)
+            return
+        try:
+            take = network.daily_counter(self.c.dynamodb, self.c.budget_table)
+            r = network.reachability(self.c.ec2, pair[0], pair[1], 6379, take)
+        except network.Unavailable as exc:
+            self.add("reachability", f"Reachability Analyzer: not run ({exc}).", "EC2 Reachability Analyzer",
+                     reachable=None)
+            return
+        where = "; ".join(f"{b['code']} at {b['security_group'] or b['component']}" for b in r["blocked_by"]) or "-"
+        self.add("reachability",
+                 (f"Reachability Analyzer, catalog-api ENI -> Valkey ENI on 6379: "
+                  + ("REACHABLE" if r["reachable"] else f"NOT reachable, blocked: {where}")
+                  + f" (analysis took {r['seconds']:.0f} s)."),
+                 "EC2 Reachability Analyzer (capped per day)", src=pair[0], dst=pair[1], **r)
+
+    def dns(self, end: datetime) -> None:
+        """S4's evidence: names that don't resolve from inside the VPC (Resolver query
+        logs), e.g. a typo'd vendor host in a config change."""
+        group = self.shared.get("resolver_log_group")
+        if not group or self.c.logs is None:
+            return
+        r = network.dns_errors(self.c.logs, group, end - NET_RECENT, end)
+        top = ", ".join(f"`{x.get('query_name', '?').rstrip('.')}` {x.get('rcode')} x{x['queries']}"
+                        for x in r["top"][:5]) or "none"
+        self.add("dns_errors", f"DNS errors from inside the VPC in the last {NET_RECENT.seconds // 60} min "
+                 f"(Route 53 Resolver query logs): {top}.", f"Logs Insights on {group}",
+                 total=r["total"], names=[{"name": x.get("query_name", "").rstrip("."), "rcode": x.get("rcode"),
+                                           "queries": x["queries"]} for x in r["top"][:10]])
+
+NET_RECENT = timedelta(minutes=10)  # flow-log / DNS "now" window ends at collection time
+NET_BASELINE = timedelta(minutes=60)  # the hour before it
+
+
 def collect(clients: Clients, alarm: dict, params: dict[str, str], shared: dict[str, str],
             end: datetime | None = None) -> list[dict[str, Any]]:
     end = end or datetime.now(timezone.utc)
     col = Collector(clients, alarm["customer"], alarm["env"], params, shared)
     col.alarm(alarm)
     for step in (col.dependencies, col.valkey_server, col.appconfig_changes, col.runtime_flags, col.deploys,
-                 col.cloudtrail):
+                 col.cloudtrail, col.network, col.dns):
         try:
             step(end)
         except Exception as exc:  # evidence is best effort: a missing item is itself recorded

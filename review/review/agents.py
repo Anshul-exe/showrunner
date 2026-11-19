@@ -5,8 +5,11 @@ is valid YAML, and the standard library reads it), then the system prompt. The f
 SHA-256 goes into the PR comment, so each finding traces to the exact instructions.
 
 Caps: at most MAX_CALLS_PER_RUN model calls per review, and a per-day counter in
-DynamoDB (`sr-ops-agent-budget`, conditional increment). If the counter table can't be
-reached the review still runs, deterministic checks only, and says so.
+DynamoDB (`sr-ops-agent-budget`, conditional increment). No model call without the
+counter. Every reason the model isn't used has a kind (AgentUnavailable.kind): only the
+daily budget is a designed limit, where the rules-mode result stands; any other kind
+(counter table, Bedrock, throttling, an answer that fails its schema) means the PR
+wasn't reviewed, and the gate fails closed (ADR 0013).
 """
 
 from __future__ import annotations
@@ -33,7 +36,16 @@ PRICES = {"amazon.nova-lite-v1:0": (0.00006, 0.00024)}  # USD per 1K tokens (doc
 
 
 class AgentUnavailable(Exception):
-    pass
+    """kind: "budget" (daily cap reached: a designed limit), "infra" (counter table,
+    Bedrock, throttling, credentials), "output" (the answer failed its schema), "cap"
+    (per-run cap: only a code bug can reach it)."""
+
+    def __init__(self, message: str, kind: str = "infra"):
+        super().__init__(message)
+        self.kind = kind
+
+
+DESIGNED_LIMITS = {"budget"}  # the only fallbacks after which a rules-mode result stands
 
 
 @dataclass
@@ -87,11 +99,11 @@ def validate(value: Any, schema: dict, path: str = "$") -> list[str]:
 def extract_json(text: str) -> Any:
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
-        raise AgentUnavailable("no JSON object in the model's answer")
+        raise AgentUnavailable("no JSON object in the model's answer", "output")
     try:
         return json.loads(text[start:end + 1])
     except json.JSONDecodeError as exc:
-        raise AgentUnavailable(f"invalid JSON from the model: {exc.msg}") from None
+        raise AgentUnavailable(f"invalid JSON from the model: {exc.msg}", "output") from None
 
 
 # ------------------------------------------------------------------ AWS CLI
@@ -132,13 +144,13 @@ class Budget:
 
     def take(self) -> None:
         if self.used >= self.run_cap:
-            raise AgentUnavailable(f"per-run cap of {self.run_cap} model calls reached")
+            raise AgentUnavailable(f"per-run cap of {self.run_cap} model calls reached", "cap")
         day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         try:
             self.counter(day, self.daily_cap)
         except AgentUnavailable as exc:
             if "ConditionalCheckFailed" in str(exc):
-                raise AgentUnavailable(f"daily cap of {self.daily_cap} review calls reached") from None
+                raise AgentUnavailable(f"daily cap of {self.daily_cap} review calls reached", "budget") from None
             raise AgentUnavailable(f"call counter unavailable ({exc}); no model call without it") from None
         self.used += 1
 
@@ -175,7 +187,7 @@ def run(agent: Agent, payload: dict, budget: Budget, call: Callable[[dict], dict
     output = tool["input"] if tool else extract_json(text)
     problems = validate(output, agent.meta["output_schema"])
     if problems:
-        raise AgentUnavailable("output failed its schema: " + "; ".join(problems[:3]))
+        raise AgentUnavailable("output failed its schema: " + "; ".join(problems[:3]), "output")
     usage = resp.get("usage", {})
     tin, tout = int(usage.get("inputTokens", 0)), int(usage.get("outputTokens", 0))
     pin, pout = PRICES.get(agent.meta["model"], (0.0, 0.0))

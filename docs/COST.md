@@ -31,6 +31,8 @@ except where marked.
 | EventBridge, AWS service events on the default bus | free |
 | CloudFront pay-as-you-go (tier 2 page) | always free: 1 TB out, 10M HTTPS requests, 2M CloudFront Functions per month; then $0.085/GB and $0.0100 per 10,000 HTTPS requests (North America); no per-distribution fee |
 | S3 Standard (page files, a few KB) | ~$0.023/GB-month: effectively $0 |
+| VPC Reachability Analyzer | $0.10 per analysis (tier 2, S3) |
+| Route 53 Resolver query logging | no charge for logging itself; CloudWatch Logs ingestion and storage as above |
 
 ## The core, running all month (tier 1)
 
@@ -50,6 +52,8 @@ except where marked.
 | Incident loop (day 2): Step Functions, 5 Lambdas, audit table, EventBridge rule | < $0.10 | ~30-60 transitions = ~$0.0015 per incident; idle costs nothing |
 | Bedrock Nova Lite (enabled 18/11/2026; one triage call measured at $0.00013) | < $0.05 | ~3K tokens in, ~1K out per agent call = ~$0.0004; capped by the $5 Bedrock budget |
 | PR review agents (tier 2): Nova Lite + the `sr-ops-agent-budget` counter table | < $0.40 | measured $0.00017 per review (1,541 + 328 tokens, 18/11/2026); hard caps 2 calls/run and 40 calls/day: worst case 1,200 calls x ~$0.0003 = ~$0.36/month; the table is on-demand, one item per day, 7-day TTL |
+| Network evidence (tier 2, S3/S4): Reachability Analyzer + Resolver query logs | < $1 | Reachability runs only on a network signal, capped at 2 a day in code (worst case $6/month; one run per S3 drill in practice); Resolver query logs: 3-day retention, ingestion only while there is traffic (volume not measured yet) |
+| Latency alarms as metric math (p95 only in minutes with >= 5 calls, 19/11/2026) | +$0.20 per customer | each latency alarm now reads 2 metrics instead of 1 |
 | **Total** | **~$17-22** | target in the brief: $22-28 |
 
 Each new customer adds ~$0.60-2 (its 6 metrics, 5 alarm metrics, a table, a function):

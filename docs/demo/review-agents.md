@@ -77,7 +77,7 @@ run locally on it, base = the `main` that will be pushed.
 |---|---|
 | route | `iac-security` (and `cost`, routed but not built) |
 | evidence | 1 hunk; checkov: 0 failures on the platform |
-| review, **without** the `sr-ops-agent-budget` table | counter not found -> no model call -> rules mode -> 0 findings -> the gate would **pass**. So the PR must be opened after the ops-core apply |
+| review, **without** the `sr-ops-agent-budget` table | counter not found -> no model call -> rules mode -> 0 findings -> the gate would **pass**. So the PR must be opened after the ops-core apply. Since 19/11/2026 this case fails closed instead ("Not reviewed by the model", ADR 0013) |
 | review, with the counter (stubbed locally) | 1 model call, 1,541 + 339 tokens, $0.00017; F1 `s3:*` **confirmed**, F2 heartbeat and F3 Deny **refuted**, all by checks; exit 1 (confirmed high) |
 | gate, no label | **fails**: "a confirmed high finding; to override, add the label `accept-risk`..." |
 | gate, label but no reason comment | **fails**: "... there's no reason: <who> must write it in a PR comment" |
@@ -101,7 +101,7 @@ private run book). Then, in the demo:
    reason link. Show the audit row:
 
    ```bash
-   aws dynamodb query --table-name sr-ops-audit --key-condition-expression 'pk = :p' \
+   AWS_PROFILE=showrunner aws dynamodb query --table-name sr-ops-audit --key-condition-expression 'pk = :p' \
      --expression-attribute-values '{":p":{"S":"REVIEW#pr-<n>"}}' --output table
    ```
 5. "The review role can write that row and nothing else: PutItem, this table, keys
@@ -111,10 +111,51 @@ private run book). Then, in the demo:
 Fallback: this page (the recorded run and the rehearsal above).
 
 If it differs: the model may word findings differently or skip one look-alike; the
-verdicts come from the checks. "rules: ... (model not used: ...)" in the comment means
-the model or the counter was unavailable: say so; the gate still enforces the rest.
+verdicts come from the checks. "**Not reviewed by the model: daily budget reached**" means
+the daily cap was used: the rules result stands, say so. "**Not reviewed by the model:**
+<reason>" with a failed gate is an infrastructure error (Bedrock, the counter,
+throttling): the gate fails closed; fix it and re-run failed jobs (ADR 0013).
 
 ## Real run on GitHub
 
-Not run yet. (Recorded here with the date, the PR, the run times and the audit row once
-the PR is open.)
+PR #10 (`demo/review-seed`), 18/11/2026 (UTC; 19/11 IST), workflow run 44409360092.
+
+| Step | When (UTC) | Took |
+|---|---|---|
+| PR opened | 22:12:45 | |
+| `route + scanner evidence` | 22:12:53 - 22:13:28 | 35 s |
+| `iac-security + verifier` | 22:13:31 - 22:14:06 | 35 s |
+| `review-agents gate` (attempt 1): **failed**, 1 confirmed high | 22:14:10 - 22:14:33 | 23 s |
+| PR opened -> review comment posted | 22:12:45 -> 22:14:30 | 1 min 45 s |
+| Reason comment, then label `accept-risk` (a human) | 22:39:55 (label) | |
+| `review-agents gate` (attempt 2, "re-run failed jobs"): **passed** | 22:40:22 - 22:40:52 | 30 s, no model call |
+
+The comment, as posted:
+
+- **1 confirmed, 2 refuted, 0 for a human.** Specialist `iac-security` on
+  `amazon.nova-lite-v1:0`: 1,541 input + 357 output tokens, **$0.00018**. Verifier:
+  checks only (no model).
+- Confirmed (high): `platform/modules/ops-core/main.tf:228`, "IAM policy allows s3:*
+  actions on all resources"; evidence: the Allow statement at lines 226-230.
+- Refuted: `states:SendTaskHeartbeat` on `*` (no IAM resource type: `*` is the only valid
+  resource, ADR 0008) and the account-boundary Deny at lines 240-250 (a wildcard in a Deny
+  narrows access).
+  Both are the look-alikes the seed planted; the model flagged them, the checks threw them out.
+- `cost`: routed, not built yet (tier 3).
+
+The override, as recorded (sr-ops-audit, read 19/11/2026):
+
+| Field | Value |
+|---|---|
+| pk / sk | `REVIEW#pr-10` / `2026-11-18T22:39:55Z#accept-risk` |
+| by | the repo owner (the GitHub actor who added the label) |
+| findings | F1, high, `platform/modules/ops-core/main.tf:228` |
+| reason_comment | the PR comment's link (written before the label) |
+| run | 44409360092 |
+| expires_at | 1 year after the override (TTL) |
+
+The comment gained: "**Override:** `accept-risk` added by ... at 2026-11-18T22:39:55Z;
+reason; recorded in sr-ops-audit (REVIEW#pr-10 / ...). The gate passes."
+
+Not done yet: making "review-agents gate" a required check on `main` (a ruleset, the
+user's step), so today the gate reports but doesn't block a merge.

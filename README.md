@@ -109,9 +109,17 @@ Tier 2 so far: the self-service readiness gate (built); customer pages on CloudF
 agents (`iac-security` + verifier, [ADR 0013](docs/adr/0013-review-agents.md)): built
 and recorded on the seeded change with the workflow's steps run locally
 ([docs/demo/review-agents.md](docs/demo/review-agents.md)); **not yet run on a real PR**.
+Network case files ([ADR 0014](docs/adr/0014-network-evidence.md)): the incident loop's
+evidence now includes the cache's security-group rule vs Terraform, CloudTrail network
+changes, flow-log REJECTs, Resolver NXDOMAINs and a capped Reachability Analyzer check.
+**S3** (a rule revoked by hand) drilled on dev twice on 18/11/2026
+([case file](docs/demo/case-files/S3.md)): the first drill found a real bug (a cache
+outage became a full outage: 503 after 8.8 s), fixed with a circuit breaker; the second
+served every request. The Terraform half (Resolver logs, evidence IAM, flags schema) is
+**not applied yet** (it goes through CI), so **S4 (DNS) is built and unit-tested but not
+yet run**, and the loop on AWS doesn't collect network evidence yet.
 
-**Not built yet** (in order, [docs/ROADMAP.md](docs/ROADMAP.md)): network case files
-(S3/S4), canary deploys and container images with provenance, then prod, SLO burn-rate
+**Not built yet** (in order, [docs/ROADMAP.md](docs/ROADMAP.md)): canary deploys and container images with provenance, then prod, SLO burn-rate
 alarms, load tests that find the breaking point, cost reports, an MCP server, and the
 other four review specialists.
 

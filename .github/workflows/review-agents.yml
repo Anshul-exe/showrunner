@@ -94,6 +94,7 @@ jobs:
       comment: ${{ steps.run.outputs.comment }}
       blocking: ${{ steps.run.outputs.blocking }}
       highs: ${{ steps.run.outputs.highs }}
+      degraded: ${{ steps.run.outputs.degraded }}
     steps:
       - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
@@ -124,13 +125,21 @@ jobs:
           rc=0
           PYTHONPATH=review python3 -m review run --evidence "$RUNNER_TEMP/evidence.json" --root . \
             --routed "$RUNNER_TEMP/routed.json" > "$RUNNER_TEMP/result.json" || rc=$?
-          [[ $rc -le 1 ]] || exit "$rc"   # 1 = a confirmed high: the gate decides, after commenting
+          # 1 = a confirmed high: the gate decides, after commenting. 3 = the model couldn't
+          # review it (not the daily budget): comment, then fail this job, so "re-run failed
+          # jobs" re-runs the review, not just the gate.
+          [[ $rc -le 1 || $rc -eq 3 ]] || exit "$rc"
           jq -c '{model_calls, blocking, specialist: .specialist.mode, verifier: .verification.usage.mode,
                   verdicts: [.verification.verdicts[] | {finding, verdict, decided_by}]}' "$RUNNER_TEMP/result.json"
           PYTHONPATH=review python3 -m review comment < "$RUNNER_TEMP/result.json" > "$RUNNER_TEMP/comment.md"
           echo "comment=$(base64 -w0 "$RUNNER_TEMP/comment.md")" >> "$GITHUB_OUTPUT"
           echo "blocking=$(jq -r .blocking "$RUNNER_TEMP/result.json")" >> "$GITHUB_OUTPUT"
           echo "highs=$(jq -c .confirmed_high "$RUNNER_TEMP/result.json" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          echo "degraded=$(jq -r .degraded "$RUNNER_TEMP/result.json" | base64 -w0)" >> "$GITHUB_OUTPUT"
+          if [[ $rc -eq 3 ]]; then
+            echo "::error::not reviewed by the model: $(jq -r .degraded "$RUNNER_TEMP/result.json")"
+            exit 3
+          fi
 
   gate:
     name: review-agents gate
@@ -165,11 +174,13 @@ jobs:
           COMMENT: ${{ needs.review.outputs.comment }}
           BLOCKING: ${{ needs.review.outputs.blocking }}
           HIGHS: ${{ needs.review.outputs.highs }}
+          DEGRADED: ${{ needs.review.outputs.degraded }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           d="$RUNNER_TEMP/gate"; mkdir -p "$d"
           [[ -z "$COMMENT" ]] || base64 -d <<< "$COMMENT" > "$d/review.md"
           [[ -z "$HIGHS" ]] || base64 -d <<< "$HIGHS" > "$d/highs.json"
+          [[ -z "$DEGRADED" ]] || base64 -d <<< "$DEGRADED" > "$d/degraded.txt"
           if [[ "$FORK" != "true" ]]; then
             gh api "repos/$GITHUB_REPOSITORY/issues/$PR/labels" > "$d/labels.json"
             gh api "repos/$GITHUB_REPOSITORY/issues/$PR/events" --paginate | jq -s add > "$d/events.json"
@@ -178,7 +189,7 @@ jobs:
           PYTHONPATH=review python3 -m review gate --fork "$FORK" --evidence-result "$EVIDENCE_RESULT" \
             --review-needed "$REVIEW" --review-result "$REVIEW_RESULT" --blocking "$BLOCKING" \
             --repo "$GITHUB_REPOSITORY" --pr "$PR" --run-url "$RUN_URL" --out "$d" \
-            --review-comment "$d/review.md" --highs "$d/highs.json" \
+            --review-comment "$d/review.md" --highs "$d/highs.json" --degraded "$d/degraded.txt" \
             --labels "$d/labels.json" --events "$d/events.json" --comments "$d/comments.json"
           echo "record=$(jq -r '.record != null' "$d/decision.json")" >> "$GITHUB_OUTPUT"
           echo "comment=$(jq -r .comment "$d/decision.json")" >> "$GITHUB_OUTPUT"

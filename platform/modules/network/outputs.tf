@@ -37,3 +37,8 @@ output "flow_log_group" {
   description = "VPC flow logs log group."
   value       = aws_cloudwatch_log_group.flow.name
 }
+
+output "resolver_log_group" {
+  description = "Route 53 Resolver query logs log group."
+  value       = aws_cloudwatch_log_group.resolver.name
+}

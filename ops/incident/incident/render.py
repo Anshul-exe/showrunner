@@ -72,8 +72,39 @@ def _checks(checks: list[dict]) -> str:
     return "\n".join(out)
 
 
+def _proposal(proposal: dict, flags: dict | None, timeout_min: int) -> list[str]:
+    spec = proposal["spec"]
+    ac = spec["appconfig"]
+    head = [f"### Proposed action {proposal['id']}: `{spec['id']}` (for {proposal['hypothesis']})", "",
+            f"{spec.get('description', '')}", "",
+            f"- **Lane:** runtime: an AppConfig deployment to `{ac['profile']}`, no code deploy, no Terraform. "
+            "The deployment bakes for 1 minute and the dependency-errors alarm rolls it back."]
+    if ac.get("rollback"):
+        n = proposal.get("params", {}).get("deployment")
+        body = [f"- **Exact change:** redeploy the `{ac['profile']}` version that was live before deployment #{n}. "
+                f"Refused at execution time if anything was deployed after #{n}.",
+                f"- **Now:** `{json.dumps(flags or {})}`",
+                f"- **Blast radius:** {spec.get('blast_radius', 'not stated')}",
+                f"- **Rollback:** {spec.get('rollback', 'not stated')}"]
+    else:
+        before = dict(flags or {})
+        after = {**before, **ac["set"]}
+        body = [f"- **Exact change** (`{ac['profile']}`):", "  ```diff",
+                *[f"  - {json.dumps({k: before.get(k)})}\n  + {json.dumps({k: v})}" for k, v in ac["set"].items()],
+                "  ```",
+                f"- **Result:** `{json.dumps(after)}`",
+                f"- **Blast radius:** {spec.get('blast_radius', 'not stated')}",
+                f"- **Rollback:** `{json.dumps((spec.get('rollback') or {}).get('set', spec.get('rollback')))}` "
+                f"on `{ac['profile']}`"]
+    return head + body + ["",
+        f"**To approve, comment `/approve {proposal['id']}`.** To reject: `/reject {proposal['id']} <reason>`. "
+        f"Only a CODEOWNER with maintain or admin rights can approve. No answer in {timeout_min} min = "
+        "escalation, and nothing changes."]
+
+
 def analysis(evidence: list[dict], triage: dict, verification: dict, proposal: dict | None,
-             flags: dict | None, task_token: str | None = None, timeout_min: int = 30) -> str:
+             flags: dict | None, task_token: str | None = None, timeout_min: int = 30,
+             recommendation: dict | None = None) -> str:
     mode = triage["mode"]
     who = (f"model `{triage['model']}` ({triage['input_tokens']}+{triage['output_tokens']} tokens)"
            if mode == "model" else f"deterministic rules (model unavailable: {short_reason(triage.get('reason', ''))})")
@@ -102,32 +133,20 @@ def analysis(evidence: list[dict], triage: dict, verification: dict, proposal: d
             parts.append(_checks(a["checks"]))
             parts.append("")
     if proposal:
-        spec = proposal["spec"]
-        ac = spec["appconfig"]
-        before = dict(flags or {})
-        after = {**before, **ac["set"]}
-        parts += [
-            f"### Proposed action {proposal['id']}: `{spec['id']}` (for {proposal['hypothesis']})", "",
-            f"{spec.get('description', '')}", "",
-            f"- **Lane:** runtime: an AppConfig deployment to `{ac['profile']}`, no code deploy, no Terraform. "
-            "The deployment bakes for 1 minute and the dependency-errors alarm rolls it back.",
-            f"- **Exact change** (`{ac['profile']}`):",
-            "  ```diff",
-            *[f"  - {json.dumps({k: before.get(k)})}\n  + {json.dumps({k: v})}" for k, v in ac["set"].items()],
-            "  ```",
-            f"- **Result:** `{json.dumps(after)}`",
-            f"- **Blast radius:** {spec.get('blast_radius', 'not stated')}",
-            f"- **Rollback:** `{json.dumps((spec.get('rollback') or {}).get('set', spec.get('rollback')))}` "
-            f"on `{ac['profile']}`",
-            "",
-            f"**To approve, comment `/approve {proposal['id']}`.** To reject: `/reject {proposal['id']} <reason>`. "
-            f"Only a CODEOWNER with maintain or admin rights can approve. No answer in {timeout_min} min = "
-            "escalation, and nothing changes.",
-        ]
+        parts += _proposal(proposal, flags, timeout_min)
     else:
         parts += ["### No action proposed", "",
-                  "No hypothesis was confirmed with a matching safe action in the runbook. A human needs to "
+                  "No hypothesis was confirmed with a matching runtime action in the runbook. A human needs to "
                   "look: start with the runbook's Diagnose section."]
+    if recommendation:
+        spec = recommendation["spec"]
+        parts += ["", f"### Recommended (for a human, through the pipeline): `{spec['id']}` "
+                      f"(for {recommendation['hypothesis']})", "",
+                  f"{spec.get('description', '')}", "",
+                  f"- **Lane:** change: Terraform through CI, not executed by this loop.",
+                  f"- **How:** `{spec.get('pipeline', 'see the runbook')}`",
+                  f"- **Blast radius:** {spec.get('blast_radius', 'not stated')}",
+                  f"- **Rollback:** {spec.get('rollback', 'not stated')}"]
     if task_token:
         parts += ["", f"<!-- {TOKEN_MARK} {proposal['id']} {task_token} -->"]
     return "\n".join(parts)

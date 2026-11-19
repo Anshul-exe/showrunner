@@ -91,7 +91,7 @@ def specialist(name: str, evidence: list[dict], budget: agents.Budget,
                 "tokens": [res.input_tokens, res.output_tokens], "cost_usd": res.cost_usd, "findings": findings}
     except agents.AgentUnavailable as exc:
         return {"mode": "rules", "agent": name, "sha256": agent.sha256, "model": None, "reason": str(exc)[:200],
-                "tokens": [0, 0], "cost_usd": 0.0, "findings": rule_findings(evidence)}
+                "fallback": exc.kind, "tokens": [0, 0], "cost_usd": 0.0, "findings": rule_findings(evidence)}
 
 
 def sanitize(raw: list[dict], evidence: list[dict]) -> list[dict]:
@@ -197,8 +197,18 @@ def verify(findings: list[dict], evidence: list[dict], root: Path, budget: agent
             usage = {"mode": "model", "model": agent.meta["model"], "sha256": agent.sha256,
                      "tokens": [res.input_tokens, res.output_tokens], "cost_usd": res.cost_usd}
         except agents.AgentUnavailable as exc:
-            usage["reason"] = str(exc)[:200]
+            usage.update(reason=str(exc)[:200], fallback=exc.kind)
     return {"verdicts": verdicts, "usage": usage}
+
+
+def not_reviewed(spec: dict[str, Any], ver: dict[str, Any]) -> tuple[str, bool]:
+    """(why the PR wasn't reviewed by the model, or "" if it was; daily budget reached?).
+    A fallback that isn't a designed limit means the review didn't happen: fail closed."""
+    stages = (("specialist", spec), ("verifier", ver["usage"]))
+    broken = [f"{stage}: {u['reason']}" for stage, u in stages
+              if u.get("reason") and u.get("fallback", "infra") not in agents.DESIGNED_LIMITS]
+    budget = any(u.get("fallback") == "budget" for _, u in stages)
+    return "; ".join(broken), budget
 
 
 def _context(root: Path, f: dict, radius: int = 12) -> str:

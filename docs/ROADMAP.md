@@ -33,6 +33,9 @@ six-month goals there, so each tier is also a plan for those goals.
    `sr-ops-agent-budget` table is applied.
 4. **Network case files** (P17): S3 security-group drift and S4 DNS, with the network
    evidence tools added to the incident loop.
+   *Status 19/11/2026:* built (ADR 0014). S3 drilled on dev twice (found and fixed a
+   cache-outage-is-a-full-outage bug); S4 unit-tested, runs after the CI apply of the
+   Resolver logs and flags schema.
 5. **Safe deploys** (P7, P12): CodeDeploy canary + scenario S2 (bad deploy rolled back
    by alarm); container image + provenance + deploy by digest.
 

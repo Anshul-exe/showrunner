@@ -110,3 +110,22 @@ def test_comment_names_the_deployment_and_answers_the_follow_up():
     late = undo.comment_body("flags", ACT, 16, {"vendor_fallback": False}, "x", "y", "2026-11-18 10:21:40", "2026-11-18 16:40:00")
     assert "(recorded 2026-11-18 16:40:00 UTC)" in late
     assert "first follow-up" in body
+
+
+def test_s4_typo_host_is_nxdomain_shaped_and_refuses_other_urls():
+    import scenarios
+    url = "https://abcdef.lambda-url.us-east-1.on.aws/"
+    assert scenarios.typo_host(url) == "https://abcdef.lambda-ur.us-east-1.on.aws"
+    with pytest.raises(ValueError):
+        scenarios.typo_host("https://example.com")
+
+
+def test_s3_restores_the_rule_exactly_as_terraform_declares_it():
+    """`stop` must leave no drift: same ports and description as modules/cache."""
+    import re
+    import scenarios
+    tf = (Path(__file__).resolve().parents[1] / "platform" / "modules" / "cache" / "main.tf").read_text()
+    ingress = re.search(r"ingress \{(.*?)\}", tf, re.S).group(1)
+    assert f'"{scenarios.S3_DESCRIPTION}"' in ingress
+    assert re.search(r"from_port\s*=\s*6379", ingress) and re.search(r"to_port\s*=\s*6380", ingress)
+    assert scenarios.S3_PORTS == (6379, 6380)

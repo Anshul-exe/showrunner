@@ -4,13 +4,29 @@ platform's own alarms, dashboards and (day 2) incident loop do the rest.
 S1, slow external vendor (the P9 story): +1500 ms on acme-tv's vendor calls. The
 vendor alarm should fire in about 3 minutes; the per-dependency view points at the
 vendor while the legacy view shows rising cache connections.
+
+S3, security-group drift (networking/access): someone removes the Lambda -> Valkey
+rule by hand. Every customer in the env loses the cache once its connections recycle
+(at most 120 s, CACHE_MAX_CONN_AGE_S); requests fall back to DynamoDB, slower, and
+Valkey errors are counted. The fix is the change lane: re-apply shared/<env> through
+the pipeline. `stop` restores the exact rule Terraform declares, so the plan is clean.
+
+S4, DNS: a flags deployment points acme-tv's vendor client at a typo'd host
+(`lambda-ur` instead of `lambda-url`, under AWS's on.aws domain, so it is NXDOMAIN).
+Vendor calls fail; the fix is the runtime lane: roll back that AppConfig deployment.
 """
 
 from __future__ import annotations
 
 import json
+import sys
+from pathlib import Path
 
 import appconfig
+import common
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ops" / "lib"))
+from opslib import network  # noqa: E402
 
 S1_CUSTOMER = "acme-tv"
 S1_LATENCY_MS = 1500
@@ -32,4 +48,77 @@ def s1(action: str | None, env: str) -> int:
         print("S1 stopped: chaos off, flags at defaults.")
         return 0
     print("usage: sr demo s1 start|stop")
+    return 2
+
+
+# ------------------------------------------------------------------ S3
+# The rule modules/cache declares (keep in step with it: `stop` must leave no drift).
+S3_PORTS = (6379, 6380)
+S3_DESCRIPTION = "Valkey (6379 primary, 6380 reader) from catalog-api"
+
+
+def _s3_target(env: str) -> tuple[str, str]:
+    shared = common.shared_params(env)
+    cache_sg = network.cache_security_group(common.client("elasticache"), shared["cache_name"])
+    return cache_sg, shared["lambda_security_group_id"]
+
+
+def s3(action: str | None, env: str) -> int:
+    ec2 = common.client("ec2")
+    if action not in ("start", "stop"):
+        print("usage: sr demo s3 start|stop")
+        return 2
+    cache_sg, lambda_sg = _s3_target(env)
+    perm = {"IpProtocol": "tcp", "FromPort": S3_PORTS[0], "ToPort": S3_PORTS[1],
+            "UserIdGroupPairs": [{"GroupId": lambda_sg, "Description": S3_DESCRIPTION}]}
+    drift = network.sg_rule_drift(ec2, cache_sg, lambda_sg)
+    if action == "start":
+        if drift["drift"]:
+            print(f"S3 already started: {cache_sg} is missing {drift['missing_ports']} from {lambda_sg}.")
+            return 0
+        ec2.revoke_security_group_ingress(GroupId=cache_sg, IpPermissions=[perm])
+        print(f"S3 started: revoked tcp {S3_PORTS[0]}-{S3_PORTS[1]} from {lambda_sg} on {cache_sg} (the cache's SG).")
+        print("Existing Valkey connections live on until they recycle (<= 120 s); then cache calls fail and "
+              "requests fall back to DynamoDB. Run traffic; the dependency-errors alarm fires in ~3-4 min.")
+        print("Fix (change lane): re-apply shared/" + env + " through the pipeline, or `./sr demo s3 stop`.")
+        return 0
+    if not drift["drift"]:
+        print(f"S3 not active: {cache_sg} allows {S3_PORTS[0]}-{S3_PORTS[1]} from {lambda_sg}.")
+        return 0
+    ec2.authorize_security_group_ingress(GroupId=cache_sg, IpPermissions=[perm])
+    after = network.sg_rule_drift(ec2, cache_sg, lambda_sg)
+    print(f"S3 stopped: rule restored on {cache_sg} exactly as Terraform declares it (drift: {after['drift']}).")
+    return 0 if not after["drift"] else 1
+
+
+# ------------------------------------------------------------------ S4
+S4_CUSTOMER = "acme-tv"
+
+
+def typo_host(url: str) -> str:
+    """The vendor's function URL with `lambda-url` -> `lambda-ur`: a believable typo
+    whose host is NXDOMAIN (on.aws is AWS-owned, so it can't resolve to anyone else)."""
+    if ".lambda-url." not in url:
+        raise ValueError(f"not a Lambda function URL: {url}")
+    return url.replace(".lambda-url.", ".lambda-ur.", 1).rstrip("/")
+
+
+def s4(action: str | None, env: str) -> int:
+    if action == "start":
+        bad = typo_host(common.shared_params(env)["vendor_url"])
+        r = appconfig.set_keys(S4_CUSTOMER, env, "flags", {"vendor_url": bad},
+                               "S4 start: move the vendor client to the new host")
+        print(f"S4 started: {S4_CUSTOMER} flags vendor_url = {bad} (deployment #{r['deployment']}, live in {r['seconds']} s).")
+        print("Vendor calls fail (NXDOMAIN) once catalog-api reads the flags (<= 15 s); recs fall back to the cached "
+              "copy. Run traffic: dependency-errors fires in ~3 min. Fix (runtime lane): roll back that deployment.")
+        return 0
+    if action == "stop":
+        current, _ = appconfig.deployed(S4_CUSTOMER, env, "flags")
+        if not current.get("vendor_url"):
+            print("S4 not active: vendor_url is unset.")
+            return 0
+        r = appconfig.set_keys(S4_CUSTOMER, env, "flags", {"vendor_url": ""}, "S4 stop: back to the shared vendor URL")
+        print(f"S4 stopped: vendor_url removed (deployment #{r['deployment']}).")
+        return 0
+    print("usage: sr demo s4 start|stop")
     return 2

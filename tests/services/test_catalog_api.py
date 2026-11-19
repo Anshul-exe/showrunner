@@ -162,3 +162,61 @@ def test_warm_failure_is_not_fatal():
     svc._cache_factory = lambda: (_ for _ in ()).throw(ConnectionError("no route"))
     svc.warm()
     assert get(svc, "/catalog")[0] == 200
+
+
+def test_vendor_url_flag_overrides_the_configured_url():
+    """S4's lever: a runtime flag can point the vendor client elsewhere (empty = default)."""
+    vendor = FakeVendor()
+    flags = {}
+    svc, _, _ = make_service(vendor=vendor, flags=flags)
+    get(svc, "/titles/t01/recs")
+    flags["vendor_url"] = "https://typo.lambda-ulr.us-east-1.on.aws"
+    get(svc, "/titles/t02/recs")
+    assert vendor.urls == [None, "https://typo.lambda-ulr.us-east-1.on.aws"]
+
+
+def test_cache_connection_is_recycled_after_max_age():
+    """Established connections survive a revoked security-group rule; recycling them
+    makes such a change (and a fresh IAM token) take effect within the max age."""
+    made = []
+
+    def factory():
+        made.append(FakeValkey())
+        return made[-1]
+
+    svc, _, _ = make_service()
+    svc._cache_factory = factory
+    now = [1000.0]
+    svc._clock = lambda: now[0]
+    svc.cache_get("acme-tv:x")
+    now[0] += 60
+    svc.cache_get("acme-tv:x")
+    assert len(made) == 1
+    now[0] += svc.cache_max_age_s
+    svc.cache_get("acme-tv:x")
+    assert len(made) == 2 and made[0].closed
+
+
+def test_cache_breaker_skips_the_cache_after_a_failure_then_retries():
+    """S3 drill finding: without a breaker every request paid two failed connects and
+    hit the Lambda timeout. With it: one failed call, then DynamoDB only (each skip
+    still counted as a valkey error), then one retry after 30 s."""
+    made = []
+
+    def factory():
+        made.append(FakeValkey(fail=True))
+        return made[-1]
+
+    svc, _, out = make_service()
+    svc._cache_factory = factory
+    now = [1000.0]
+    svc._clock = lambda: now[0]
+    for _ in range(3):
+        status, body = get(svc, "/titles/t01")
+        assert status == 200
+    assert len(made) == 1  # only the first request tried to connect
+    last = emf(out)["valkey"]  # the third request: both cache calls skipped, both counted
+    assert last["DependencyErrors"] == 2 and max(last["DependencyLatency"]) < 5
+    now[0] += svc.cache_retry_after_s + 1
+    get(svc, "/titles/t01")
+    assert len(made) == 2  # breaker closed: one new attempt

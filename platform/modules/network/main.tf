@@ -155,3 +155,27 @@ resource "aws_flow_log" "this" {
   max_aggregation_interval = 60
   tags                     = { Name = var.name }
 }
+
+# ------------------------------------------------------------------ Resolver query logs
+# Every DNS query from the VPC (name, type, rcode) to CloudWatch Logs, so the incident
+# loop can show "this name doesn't resolve" (S4: NXDOMAIN for a typo'd host). Query
+# logging itself is free; CloudWatch Logs ingestion is $0.50/GB (docs/COST.md).
+# Logging to CloudWatch Logs needs a log resource policy, which Route 53 Resolver adds
+# itself on first use (AWSLogDeliveryWrite20150319).
+resource "aws_cloudwatch_log_group" "resolver" {
+  #checkov:skip=CKV_AWS_158:AWS-managed encryption; customer-managed KMS keys are on the never-create list
+  #checkov:skip=CKV_AWS_338:3-day retention on purpose (cost)
+  name              = "/sr/${var.name}/resolver-queries"
+  retention_in_days = var.flow_log_retention_days
+}
+
+resource "aws_route53_resolver_query_log_config" "this" {
+  name            = "${var.name}-dns"
+  destination_arn = aws_cloudwatch_log_group.resolver.arn
+  tags            = { Name = "${var.name}-dns" }
+}
+
+resource "aws_route53_resolver_query_log_config_association" "this" {
+  resolver_query_log_config_id = aws_route53_resolver_query_log_config.this.id
+  resource_id                  = aws_vpc.this.id
+}

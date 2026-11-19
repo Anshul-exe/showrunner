@@ -10,6 +10,10 @@ class FakeValkey:
         self.data: dict[str, str] = {}
         self.fail = fail
         self.delay_s = delay_s
+        self.closed = False
+
+    def close(self):
+        self.closed = True
 
     def ping(self):
         if self.fail:
@@ -37,9 +41,11 @@ class FakeVendor:
         self.error = error
         self.delay_s = delay_s
         self.calls = 0
+        self.urls: list[str | None] = []
 
-    def recommendations(self, title_id):
+    def recommendations(self, title_id, base_url=None):
         self.calls += 1
+        self.urls.append(base_url)
         time.sleep(self.delay_s)
         if self.error:
             raise self.error

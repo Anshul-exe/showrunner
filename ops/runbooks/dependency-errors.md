@@ -18,9 +18,19 @@ safe_actions:
   - id: rollback-last-appconfig-deployment
     lane: runtime
     applies_to: config-change
-    description: If an AppConfig deployment happened in the window, roll back to the previous version.
-    blast_radius: One customer env's runtime config returns to its previous version.
-    rollback: Redeploy the version that was rolled back.
+    description: The latest flags deployment caused this (it happened just before the alarm and is still in effect); redeploy the version before it.
+    appconfig:
+      profile: flags
+      rollback: true
+    blast_radius: One customer env's flags return to their previous version. Refused if anything was deployed after the cited deployment.
+    rollback: Redeploy the rolled-back version (it stays in AppConfig's history).
+  - id: reapply-shared-stack
+    lane: change
+    applies_to: network
+    description: A security group, route or NACL in the env's shared network drifted from Terraform (changed by hand). Re-apply the stack through the pipeline; the plan shows exactly what it restores.
+    pipeline: "gh workflow run apply.yml --ref main   # re-plans and re-applies every dev stack; shared/<env> restores the rule"
+    blast_radius: The env's shared network and cache (all its customers) return to what Terraform declares. Nothing else changes.
+    rollback: None needed (it restores the declared state); to keep the hand change, make it a PR instead.
 ---
 
 # Dependency errors
@@ -47,5 +57,9 @@ answers. That's the point: it catches the degradation before the API alarm does.
 
 ## Act
 
-Only the actions in the front matter, after approval. Anything else (security group,
-IAM, code) goes through a PR: re-apply the stack or revert the change.
+Only the actions in the front matter. The loop executes the `runtime` ones after a
+human's `/approve`; `reapply-shared-stack` (lane `change`) is recommended in the issue
+and run by a human through the pipeline. Anything else (IAM, code) goes through a PR.
+
+Scenario drills: S3 (security-group drift, [ops/scenarios](../scenarios/S3-sg-drift.md))
+and S4 (a typo'd vendor host in the flags, [S4](../scenarios/S4-dns-config.md)).

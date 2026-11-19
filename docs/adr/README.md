@@ -17,3 +17,4 @@ context, decision, consequences, and when we'd decide differently.
 | [0011](0011-plan-role-decrypt-via-lambda.md) | The plan role may decrypt only via Lambda (no false environment diff) | accepted |
 | [0012](0012-bedrock-model-id.md) | Nova Lite by its in-region model ID, not the US inference profile | accepted |
 | [0013](0013-review-agents.md) | PR review agents: one specialist; the verifier runs code checks before it asks a model | accepted |
+| [0014](0014-network-evidence.md) | Network evidence in the incident loop; Reachability Analyzer only on a network signal, 2 a day | accepted |

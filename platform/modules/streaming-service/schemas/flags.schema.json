@@ -7,6 +7,8 @@
   "properties": {
     "vendor_fallback": {"type": "boolean", "description": "Serve cached recommendations from DynamoDB instead of calling the vendor."},
     "catalog_ttl_s": {"type": "integer", "minimum": 10, "maximum": 86400},
-    "recs_ttl_s": {"type": "integer", "minimum": 10, "maximum": 86400}
+    "recs_ttl_s": {"type": "integer", "minimum": 10, "maximum": 86400},
+    "vendor_url": {"type": "string", "maxLength": 200, "pattern": "^(https://[a-z0-9][a-z0-9.-]*\\.on\\.aws/?)?$",
+                   "description": "Optional. Overrides the vendor's base URL; only https Lambda function URLs (*.on.aws). Absent or empty = the shared stack's URL."}
   }
 }
