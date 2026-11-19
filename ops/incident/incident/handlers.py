@@ -212,6 +212,7 @@ def triage_fn(event: dict, _ctx=None) -> dict:
         hyps = analysis.deterministic_triage(ev, actions)
         triage = {"mode": "deterministic", "model": None, "reason": str(exc)[:200],
                   "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0}
+    hyps = analysis.with_change_hypothesis(hyps, ev, actions)  # both paths: a change in the window is always one
     triage["hypotheses"] = analysis.number(hyps)
     _audit().record(inc["id"], "triage", agent="triage", instruction_sha256=doc.sha256, model=triage["model"],
                     input_tokens=triage["input_tokens"], output_tokens=triage["output_tokens"],

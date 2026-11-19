@@ -120,18 +120,25 @@ def test_nothing_points_anywhere_gives_unknown():
 
 
 def test_an_old_change_or_one_already_reverted_does_not_confirm():
-    # 18/11/2026 run: an hour-old S1 rehearsal (since reset to defaults) was "confirmed"
-    for ev in (with_change(minutes_before=41), with_change(minutes_before=5, at_defaults=True)):
-        hyps = analysis.deterministic_triage(ev, ACTIONS)
-        assert [h["component"] for h in hyps] == ["vendor-recs"]
-        verdict = analysis.verify(analysis.number([*hyps, {"component": "config-change", "statement": "s",
-                                                            "impact": "i", "cites": ["E7"], "action": None}]), ev)
-        assert verdict["verdicts"][1]["verdict"] == "refuted"
+    # 18/11/2026 run: an hour-old S1 rehearsal (since reset to defaults) was "confirmed".
+    # Older than the window: not a hypothesis at all.
+    hyps = analysis.deterministic_triage(with_change(minutes_before=41), ACTIONS)
+    assert [h["component"] for h in hyps] == ["vendor-recs"]
+    # In the window but already reverted: always a hypothesis (G3, 19/11), and refuted.
+    ev = with_change(minutes_before=5, at_defaults=True)
+    hyps = analysis.number(analysis.deterministic_triage(ev, ACTIONS))
+    assert [h["component"] for h in hyps] == ["vendor-recs", "config-change"]
+    v = analysis.verify(hyps, ev)["verdicts"][1]
+    assert v["verdict"] == "refuted" and "back at their defaults" in v["checks"][0]["detail"]
 
 
 def test_a_recent_code_deploy_that_is_live_confirms():
     ev = s1()
     ev[8]["data"] = {"versions": [{"version": "4", "at": "22:15:00", "minutes_before_alarm": 5}], "live": "4"}
-    assert [h["component"] for h in analysis.deterministic_triage(ev, ACTIONS)] == ["vendor-recs", "config-change"]
-    ev[8]["data"]["live"] = "3"  # published but not live: not a change users see
-    assert [h["component"] for h in analysis.deterministic_triage(ev, ACTIONS)] == ["vendor-recs"]
+    hyps = analysis.number(analysis.deterministic_triage(ev, ACTIONS))
+    assert [h["component"] for h in hyps] == ["vendor-recs", "config-change"]
+    assert analysis.verify(hyps, ev)["verdicts"][1]["verdict"] == "confirmed"
+    ev[8]["data"]["live"] = "3"  # published but not live: still a hypothesis, refuted
+    hyps = analysis.number(analysis.deterministic_triage(ev, ACTIONS))
+    v = analysis.verify(hyps, ev)["verdicts"][1]
+    assert v["verdict"] == "refuted" and "isn't live" in v["checks"][0]["detail"]
