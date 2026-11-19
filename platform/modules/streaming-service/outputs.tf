@@ -14,6 +14,7 @@ locals {
       aws_cloudwatch_metric_alarm.dependency_errors.alarm_name,
       aws_cloudwatch_metric_alarm.api_latency.alarm_name,
     ])
+    canary = jsonencode(local.canary) # read by tools/deploy/lambda_deploy.py (ADR 0016)
   }
 }
 

@@ -5,7 +5,7 @@
 #   showrunner-ci-plan         pull_request                  plan.yml           read-only + state lockfile
 #   showrunner-ci-apply-dev    environment:dev               apply.yml@main     build dev infra
 #   showrunner-ci-apply-prod   environment:prod (reviewer)   apply.yml@main     build prod + ops-core infra
-#   showrunner-ci-deploy-dev   environment:dev               build-deploy.yml   push image, publish version, start canary
+#   showrunner-ci-deploy-dev   environment:dev               build-deploy.yml   upload code, publish version, run the canary
 #   showrunner-ci-deploy-prod  environment:prod              build-deploy.yml   same, prod
 #   showrunner-ci-review-agents pull_request                 review-agents.yml  invoke one Bedrock model
 #   showrunner-ci-approver     ref:refs/heads/main           approve.yml        SendTaskSuccess/Failure only
@@ -20,7 +20,7 @@ locals {
     dev = {
       state_keys = ["shared/dev/*", "customers/*/dev/*"]
       functions  = ["${local.arn_prefix.lambda}:function:${local.workload_prefix}-*-dev-*"]
-      cd_apps    = ["${local.arn_prefix.cd}:application:${local.workload_prefix}-*-dev-*", "${local.arn_prefix.cd}:deploymentgroup:${local.workload_prefix}-*-dev-*/*"]
+      alarms     = ["${local.arn_prefix.cw}:alarm:${local.workload_prefix}-*-dev-*"]
       other_env  = "prod"
       # Non-secret outputs of the other environment this role's stacks read. None.
       other_env_reads = []
@@ -31,12 +31,7 @@ locals {
         "${local.arn_prefix.lambda}:function:${local.workload_prefix}-*-prod-*",
         "${local.arn_prefix.lambda}:function:${local.workload_prefix}-ops-*",
       ]
-      cd_apps = [
-        "${local.arn_prefix.cd}:application:${local.workload_prefix}-*-prod-*",
-        "${local.arn_prefix.cd}:deploymentgroup:${local.workload_prefix}-*-prod-*/*",
-        "${local.arn_prefix.cd}:application:${local.workload_prefix}-ops-*",
-        "${local.arn_prefix.cd}:deploymentgroup:${local.workload_prefix}-ops-*/*",
-      ]
+      alarms    = ["${local.arn_prefix.cw}:alarm:${local.workload_prefix}-*-prod-*"]
       other_env = "dev"
       # ops-core (applied by this role) serves every env, so it reads two non-secret
       # outputs of each env's shared stack. Read-only; ADR 0010.
@@ -256,8 +251,10 @@ module "role_apply" {
 }
 
 # ---------------------------------------------------------------- deploy-<env>
-# Lane 2 (app code): push an image, publish a Lambda version, start a CodeDeploy
-# canary. No Terraform, no IAM, nothing else.
+# Lane 2 (app code): upload code, publish a Lambda version, run the canary on alias
+# `live` (weighted routing, rolled back on the env's alarms; ADR 0016). No Terraform,
+# no IAM, nothing else. CodeDeploy isn't on the Free plan, so the canary is the deploy
+# tool's job and the role moves the alias itself.
 
 data "aws_iam_policy_document" "deploy" {
   for_each = local.envs
@@ -283,24 +280,16 @@ data "aws_iam_policy_document" "deploy" {
     actions = [
       "lambda:GetFunction", "lambda:GetFunctionConfiguration", "lambda:UpdateFunctionCode",
       "lambda:PublishVersion", "lambda:GetAlias", "lambda:ListVersionsByFunction",
+      "lambda:UpdateAlias",
     ]
     resources = each.value.functions # the trailing * also matches :version and :alias
   }
 
+  # The canary's rollback alarms (sr-<customer>-<env>-canary-errors / -api-latency).
   statement {
-    sid = "CodeDeployCanary"
-    actions = [
-      "codedeploy:CreateDeployment", "codedeploy:GetDeployment", "codedeploy:GetDeploymentGroup",
-      "codedeploy:GetApplication", "codedeploy:GetApplicationRevision",
-      "codedeploy:RegisterApplicationRevision", "codedeploy:StopDeployment",
-    ]
-    resources = each.value.cd_apps
-  }
-
-  statement {
-    sid       = "CodeDeployConfig"
-    actions   = ["codedeploy:GetDeploymentConfig"]
-    resources = ["${local.arn_prefix.cd}:deploymentconfig:*"]
+    sid       = "ReadRollbackAlarms"
+    actions   = ["cloudwatch:DescribeAlarms"]
+    resources = each.value.alarms
   }
 
   # The deploy log feeds the incident loop's "deploys in the last 2 h" evidence.

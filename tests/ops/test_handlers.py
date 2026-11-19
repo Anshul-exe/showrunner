@@ -67,3 +67,15 @@ def test_act_refuses_anything_but_the_approved_proposal(env):
         with pytest.raises(ValueError):
             handlers.act_fn({"state": {**state, "approval": approval}})
     assert env[1].started == []
+
+
+def test_alarms_whose_runbook_says_no_incident_open_nothing(monkeypatch):
+    """canary-errors is the deploy tool's rollback trigger (ADR 0016): the EventBridge rule
+    sees every sr-* alarm, but the loop opens no incident for it."""
+    monkeypatch.setenv("RUNBOOK_BASE_URL", "https://x")
+
+    def event(name):
+        return {"detail": {"alarmName": name, "state": {"value": "ALARM", "timestamp": "2026-11-19T00:00:00.000+0000"}}}
+
+    assert handlers.parse_alarm(event("sr-acme-tv-dev-canary-errors")) is None
+    assert handlers.parse_alarm(event("sr-acme-tv-dev-api-latency"))["kind"] == "api-latency"

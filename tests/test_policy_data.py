@@ -16,6 +16,6 @@ def test_readiness_runbooks_match_the_files():
 
 
 def test_every_customer_alarm_tag_names_a_runbook_file():
-    tf = (ROOT / "platform/modules/streaming-service/alarms.tf").read_text()
+    tf = "".join((ROOT / "platform/modules/streaming-service" / f).read_text() for f in ("alarms.tf", "canary.tf"))
     tags = set(re.findall(r'runbook = "([a-z0-9-]+)"', tf))
     assert tags and all((ROOT / "ops/runbooks" / f"{t}.md").exists() for t in tags)

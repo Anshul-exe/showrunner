@@ -38,3 +38,12 @@ CORS), and the viewer's path is the real one: edge -> API -> Lambda -> dependenc
 **Status (18/11/2026):** planned and policy-checked (16 resources, conftest + checkov
 pass); the first apply was refused because new accounts must be verified before
 creating CloudFront resources (a support case). Turned back off until then.
+
+## Canary (`canary.tf`, tier 2, ADR 0016)
+
+New catalog-api code reaches 10% of requests for 5 minutes before everyone
+(`var.canary`). Terraform owns the config: the `canary-errors` alarm (API 5xx) and the
+`/showrunner/<env>/customers/<c>/canary` parameter (weight, minutes, rollback alarms),
+which `tools/deploy/lambda_deploy.py` reads. The readiness gate refuses a stack without
+it. Why not CodeDeploy: it isn't on the AWS Free plan; the tool drives the same Lambda
+alias weights CodeDeploy would.

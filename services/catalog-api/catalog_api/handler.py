@@ -234,7 +234,10 @@ class Service:
         )
         return {
             "statusCode": status,
-            "headers": {"content-type": "application/json", "cache-control": "no-store"},
+            # Which Lambda version answered: during a canary, ~10% of responses carry
+            # the new one (ADR 0016). A version number, nothing about the caller.
+            "headers": {"content-type": "application/json", "cache-control": "no-store",
+                        "x-sr-version": os.environ.get("AWS_LAMBDA_FUNCTION_VERSION", "local")},
             "body": json.dumps(body, separators=(",", ":")),
         }
 

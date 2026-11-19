@@ -48,6 +48,21 @@ variable "runbook_base_url" {
   type        = string
 }
 
+variable "canary" {
+  description = "Lane-2 canary for catalog-api (ADR 0016): share of requests on the new version, for how long, and the canary alarm's threshold."
+  type = object({
+    weight         = optional(number, 0.1)
+    minutes        = optional(number, 5)
+    errors_per_min = optional(number, 1) # normal is 0; S2 at 3 req/s fails ~1-2 requests a minute on the canary
+  })
+  default = {}
+
+  validation {
+    condition     = var.canary.weight > 0 && var.canary.weight <= 0.5 && var.canary.minutes >= 1
+    error_message = "canary.weight must be in (0, 0.5] and canary.minutes >= 1."
+  }
+}
+
 variable "thresholds" {
   description = "Alarm thresholds."
   type = object({

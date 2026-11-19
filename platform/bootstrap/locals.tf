@@ -21,6 +21,6 @@ locals {
     ddb    = "arn:aws:dynamodb:${var.region}:${var.account_id}"
     ssm    = "arn:aws:ssm:${var.region}:${var.account_id}"
     ecr    = "arn:aws:ecr:${var.region}:${var.account_id}"
-    cd     = "arn:aws:codedeploy:${var.region}:${var.account_id}"
+    cw     = "arn:aws:cloudwatch:${var.region}:${var.account_id}"
   }
 }

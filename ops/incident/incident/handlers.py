@@ -84,6 +84,8 @@ def parse_alarm(event: dict) -> dict | None:
     if not ref or d.get("state", {}).get("value") != "ALARM":
         return None
     rb = _runbooks()[ref.kind]
+    if rb.meta.get("incident") is False:  # e.g. canary-errors: the deploy tool rolls back (ADR 0016)
+        return None
     ts = d["state"].get("timestamp", event.get("time", ""))
     return {"name": ref.name, "customer": ref.customer, "env": ref.env, "kind": ref.kind,
             "severity": rb.meta.get("severity", "sev3"), "reason": d["state"].get("reason", "")[:500],
