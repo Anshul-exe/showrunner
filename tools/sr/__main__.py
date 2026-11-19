@@ -6,7 +6,9 @@
     ./sr config set  <customer> <flags|chaos> key=value [key=value...]
     ./sr demo traffic [--minutes 10] [--rps 2] [--customer c ...]
     ./sr demo watch [--once]
-    ./sr demo s1 start|stop
+    ./sr demo s1 start|stop           slow vendor (P9)
+    ./sr demo s3 start|stop           security-group drift: the Lambda -> Valkey rule revoked
+    ./sr demo s4 start|stop           DNS: a typo'd vendor host in acme-tv's flags
     ./sr demo reset                   every customer's flags + chaos back to defaults
     ./sr deploy <catalog-api|vendor-mock|incident>
     ./sr incident undo-check <customer>   record an undone mitigation on its incident
@@ -70,8 +72,8 @@ def cmd_demo(args) -> int:
         traffic.run(customers, args.env, args.minutes, args.rps)
     elif args.demo == "watch":
         watch.watch(customers, args.env, once=args.once)
-    elif args.demo == "s1":
-        return scenarios.s1(args.action, args.env)
+    elif args.demo in ("s1", "s3", "s4"):
+        return getattr(scenarios, args.demo)(args.action, args.env)
     elif args.demo == "reset":
         return preflight.reset(args.env)
     return 0
@@ -125,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("pairs", nargs="*")
 
     d = sub.add_parser("demo", help="demo helpers (dev only)")
-    d.add_argument("demo", choices=["traffic", "watch", "s1", "reset"])
+    d.add_argument("demo", choices=["traffic", "watch", "s1", "s3", "s4", "reset"])
     d.add_argument("action", nargs="?", choices=["start", "stop"])
     d.add_argument("--minutes", type=float, default=10)
     d.add_argument("--rps", type=float, default=2)

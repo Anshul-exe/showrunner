@@ -8,6 +8,8 @@ locals {
     lambda_security_group_id = module.network.lambda_security_group_id
     private_route_table_id   = module.network.private_route_table_id
     nat_asg_name             = module.network.nat_asg_name
+    flow_log_group           = module.network.flow_log_group
+    resolver_log_group       = module.network.resolver_log_group
     cache_name               = module.cache.name
     cache_arn                = module.cache.arn
     cache_endpoint           = module.cache.endpoint

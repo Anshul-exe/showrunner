@@ -53,3 +53,10 @@ def test_a_crashing_check_is_a_fail_not_a_crash(monkeypatch, capsys):
     assert preflight.run("dev") == 1
     out = capsys.readouterr().out
     assert "FAIL  boom" in out and "PASS  x" in out and "NOT READY: 1 fail" in out
+
+
+def test_network_rule_must_be_in_place():
+    ok = {"drift": False, "missing_ports": [], "cache_sg": "sg-c"}
+    assert preflight.eval_network(ok).status == PASS
+    r = preflight.eval_network({"drift": True, "missing_ports": [6379, 6380], "cache_sg": "sg-c"})
+    assert r.status == FAIL and "s3 stop" in r.detail

@@ -131,6 +131,19 @@ def check_nat(env: str) -> list[Result]:
     return [eval_nat(instances, rt["RouteTables"][0]["Routes"])]
 
 
+def eval_network(drift: dict) -> Result:
+    if drift["drift"]:
+        return Result(FAIL, "cache network rule", f"{drift['cache_sg']} is missing {drift['missing_ports']} from the Lambda "
+                      "SG (S3 still active? ./sr demo s3 stop)")
+    return Result(PASS, "cache network rule", "Lambda -> Valkey 6379-6380 in place, as Terraform declares")
+
+
+def check_network(env: str) -> list[Result]:
+    import scenarios
+    cache_sg, lambda_sg = scenarios._s3_target(env)
+    return [eval_network(scenarios.network.sg_rule_drift(common.client("ec2"), cache_sg, lambda_sg))]
+
+
 def check_incident_loop(env: str) -> list[Result]:
     sfn = common.client("stepfunctions")
     arn = common.client("ssm").get_parameter(Name="/showrunner/ops/incident/state_machine_arn")["Parameter"]["Value"]
@@ -185,7 +198,7 @@ def check_quota(env: str) -> list[Result]:
 
 
 CHECKS: list[Callable[[str], list[Result]]] = [
-    check_apis, check_alarms, check_config, check_nat, check_incident_loop, check_github_app,
+    check_apis, check_alarms, check_config, check_network, check_nat, check_incident_loop, check_github_app,
     check_bedrock, check_budgets, check_quota,
 ]
 
@@ -219,5 +232,7 @@ def reset(env: str) -> int:
                 continue
             r = appconfig.set_keys(c, env, profile, changes, "sr demo reset: back to defaults")
             print(f"  {c} {profile}: {json.dumps(changes)} -> deployment #{r['deployment']} ({r['seconds']} s)")
+    import scenarios
+    scenarios.s3("stop", env)  # S3: the cache's security-group rule, if it was revoked
     print("reset done; run ./sr preflight")
     return 0
