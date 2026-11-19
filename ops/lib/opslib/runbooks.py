@@ -45,7 +45,10 @@ def safe_actions(doc: frontmatter.Document) -> list[dict[str, Any]]:
 
 
 def executable(action: dict[str, Any]) -> bool:
-    """The core executes runtime actions that set AppConfig keys. Anything else is
-    proposed for a human to carry out."""
+    """The core executes runtime AppConfig actions: set keys, or roll back the latest
+    deployment of a profile. Anything else (lane `change`) is recommended for a human
+    to carry out through the pipeline."""
     ac = action.get("appconfig") or {}
-    return action.get("lane") == "runtime" and bool(ac.get("profile")) and isinstance(ac.get("set"), dict)
+    if action.get("lane") != "runtime" or not ac.get("profile"):
+        return False
+    return isinstance(ac.get("set"), dict) or ac.get("rollback") is True

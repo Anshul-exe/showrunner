@@ -16,9 +16,12 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 DEFAULTS: dict[str, dict[str, Any]] = {
-    "flags": {"vendor_fallback": False, "catalog_ttl_s": 300, "recs_ttl_s": 120},
+    "flags": {"vendor_fallback": False, "catalog_ttl_s": 300, "recs_ttl_s": 120, "vendor_url": ""},
     "chaos": {"vendor_latency_ms": 0, "vendor_error_rate": 0},
 }
+# Optional keys are never written while at their default, so a newer key doesn't reach
+# an environment whose schema (applied by Terraform) doesn't know it yet.
+OPTIONAL: dict[str, set[str]] = {"flags": {"vendor_url"}, "chaos": set()}
 ACTIVE = {"BAKING", "DEPLOYING", "VALIDATING"}
 LIVE = {"BAKING", "COMPLETE", "ROLLED_BACK", "ROLLING_BACK"}
 
@@ -88,7 +91,8 @@ def set_keys(ac, t: Target, profile: str, changes: dict[str, Any], description: 
     if unknown:
         raise ValueError(f"unknown keys for {profile}: {sorted(unknown)}")
     current, _ = deployed(ac, t, profile)
-    new = {**current, **changes}
+    new = {k: v for k, v in {**current, **changes}.items()
+           if not (k in OPTIONAL.get(profile, ()) and v == DEFAULTS[profile][k])}
     wait_idle(ac, t, on_wait=on_wait, sleep=sleep)
     version = ac.create_hosted_configuration_version(
         ApplicationId=t.application_id, ConfigurationProfileId=t.profile_ids[profile],
@@ -111,3 +115,52 @@ def set_keys(ac, t: Target, profile: str, changes: dict[str, Any], description: 
         "profile": profile, "before": current, "after": new, "version": version,
         "deployment": number, "state": state, "seconds": round(time.time() - started, 1),
     }
+
+
+def completed(ac, t: Target, profile: str) -> list[dict]:
+    """The profile's completed deployments, newest first: {deployment, version, started}."""
+    out = []
+    for d in deployments(ac, t):
+        if d["State"] != "COMPLETE":
+            continue
+        full = ac.get_deployment(ApplicationId=t.application_id, EnvironmentId=t.environment_id,
+                                 DeploymentNumber=d["DeploymentNumber"])
+        if full["ConfigurationProfileId"] == t.profile_ids[profile]:
+            out.append({"deployment": d["DeploymentNumber"], "version": int(full["ConfigurationVersion"]),
+                        "started": d.get("StartedAt")})
+    return out
+
+
+def rollback(ac, t: Target, profile: str, expected_deployment: int, description: str,
+             sleep: Callable[[float], None] = time.sleep) -> dict[str, Any]:
+    """Undo the profile's latest deployment by redeploying the version before it.
+
+    Refuses unless the latest completed deployment is `expected_deployment` (the one the
+    incident cited): if anything was deployed since, a human decides."""
+    history = completed(ac, t, profile)
+    if not history or history[0]["deployment"] != expected_deployment:
+        latest = history[0]["deployment"] if history else None
+        raise ValueError(f"latest {profile} deployment is #{latest}, not #{expected_deployment}: not rolling back")
+    if len(history) < 2:
+        raise ValueError(f"no {profile} deployment before #{expected_deployment} to roll back to")
+    bad, good = history[0], history[1]
+    before, _ = deployed(ac, t, profile)
+    wait_idle(ac, t, sleep=sleep)
+    started = time.time()
+    number = ac.start_deployment(
+        ApplicationId=t.application_id, EnvironmentId=t.environment_id,
+        ConfigurationProfileId=t.profile_ids[profile], ConfigurationVersion=str(good["version"]),
+        DeploymentStrategyId=t.strategy_id, Description=description[:1024],
+    )["DeploymentNumber"]
+    while True:
+        state = ac.get_deployment(ApplicationId=t.application_id, EnvironmentId=t.environment_id,
+                                  DeploymentNumber=number)["State"]
+        if state in LIVE:
+            break
+        sleep(2)
+    after = ac.get_hosted_configuration_version(
+        ApplicationId=t.application_id, ConfigurationProfileId=t.profile_ids[profile], VersionNumber=good["version"]
+    )["Content"].read()
+    return {"profile": profile, "before": before, "after": {**DEFAULTS[profile], **json.loads(after)},
+            "rolled_back": bad["deployment"], "from_version": bad["version"], "version": good["version"],
+            "deployment": number, "state": state, "seconds": round(time.time() - started, 1)}

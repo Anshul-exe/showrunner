@@ -27,7 +27,11 @@ from srkit.metrics import Dependencies
 from catalog_api.store import Store
 from catalog_api.vendor import VendorClient, VendorError
 
-FLAG_DEFAULTS = {"vendor_fallback": False, "catalog_ttl_s": 300, "recs_ttl_s": 120}
+FLAG_DEFAULTS = {"vendor_fallback": False, "catalog_ttl_s": 300, "recs_ttl_s": 120, "vendor_url": ""}
+# A Valkey connection is recycled after this many seconds (fresh IAM token, current
+# topology, and a security-group change takes effect within this time instead of at the
+# next cold start: established connections survive a revoked rule).
+CACHE_MAX_CONN_AGE_S = 120
 TITLE_ID = re.compile(r"^[a-z0-9-]{1,32}$")
 
 
@@ -50,6 +54,9 @@ class Service:
         self.flags = flags
         self._cache_factory = cache_factory
         self._cache: Any = None
+        self._cache_born = 0.0
+        self.cache_max_age_s = CACHE_MAX_CONN_AGE_S
+        self._clock = time.monotonic
         self.log = log
         self.deps = deps
 
@@ -59,9 +66,20 @@ class Service:
         return ":".join((self.customer, *parts))
 
     def _client(self) -> Any:
+        if self._cache is not None and self._clock() - self._cache_born > self.cache_max_age_s:
+            self._drop_cache()
         if self._cache is None and self._cache_factory is not None:
             self._cache = self._cache_factory()
+            self._cache_born = self._clock()
         return self._cache
+
+    def _drop_cache(self) -> None:
+        client, self._cache = self._cache, None
+        try:
+            if client is not None:
+                client.close()
+        except Exception:  # noqa: BLE001 - closing a broken connection may fail too
+            pass
 
     def _cache_op(self, op: str, *args: Any, **kwargs: Any) -> Any:
         """A cache failure degrades to DynamoDB; it never fails the request."""
@@ -72,7 +90,7 @@ class Service:
                     return None
                 return getattr(client, op)(*args, **kwargs)
         except Exception as exc:
-            self._cache = None  # reconnect (fresh IAM token) on the next call
+            self._drop_cache()  # reconnect (fresh IAM token) on the next call
             self.log.warning("cache unavailable", dependency="valkey", error_type=type(exc).__name__)
             return None
 
@@ -132,7 +150,7 @@ class Service:
             return self.cached_recs(title_id), "fallback"
         try:
             with self.deps.call("vendor-recs"):
-                recs = self.vendor.recommendations(title_id)
+                recs = self.vendor.recommendations(title_id, base_url=flags.get("vendor_url") or None)
         except VendorError as exc:
             self.log.warning("vendor failed, serving cached recs", dependency="vendor-recs", error=str(exc))
             return self.cached_recs(title_id), "fallback-on-error"
