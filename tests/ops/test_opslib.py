@@ -27,7 +27,8 @@ def test_alarm_names_with_hyphenated_customers():
 
 def test_every_runbook_action_is_well_formed():
     books = runbooks.load_all(ROOT / "ops" / "runbooks")
-    assert set(books) == {"vendor-latency", "api-latency", "dependency-errors"}
+    assert set(books) == {"vendor-latency", "api-latency", "dependency-errors", "canary-errors"}
+    assert books["canary-errors"].meta["incident"] is False and runbooks.safe_actions(books["canary-errors"]) == []
     for name, doc in books.items():
         for a in runbooks.safe_actions(doc):
             assert a["applies_to"] in {"vendor-recs", "valkey", "dynamodb", "config-change", "network"}, (name, a["id"])

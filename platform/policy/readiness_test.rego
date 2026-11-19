@@ -31,9 +31,21 @@ api_latency := alarm("api_latency", {
 	"tags": {"runbook": "api-latency"},
 })
 
+canary_alarm := alarm("canary_errors", {
+	"alarm_name": "sr-acme-tv-dev-canary-errors",
+	"alarm_description": "Errors on live. Runbook: https://x/canary-errors.md",
+	"namespace": "AWS/ApiGateway", "metric_name": "5xx", "dimensions": {"ApiId": "a"},
+	"tags": {"runbook": "canary-errors"},
+})
+
+param(cfg) := {"address": "module.service.aws_ssm_parameter.published[\"canary\"]", "mode": "managed",
+	"type": "aws_ssm_parameter", "values": {"name": "/showrunner/dev/customers/acme-tv/canary", "value": json.marshal(cfg)}}
+
+canary := param({"weight": 0.1, "minutes": 5, "alarms": ["sr-acme-tv-dev-canary-errors"]})
+
 plan(resources) := {"planned_values": {"root_module": {"child_modules": [{"resources": resources}]}}}
 
-ready := [fn, vendor_latency, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency]
+ready := [fn, vendor_latency, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency, canary_alarm, canary]
 
 readiness_denies(p) := {m | some m in deny with input as p; startswith(m, "readiness:")}
 
@@ -42,17 +54,17 @@ test_a_ready_customer_passes if {
 }
 
 test_missing_dependency_error_alarm if {
-	ds := readiness_denies(plan([fn, vendor_latency, dep_errors(["valkey", "vendor-recs"]), api_latency]))
+	ds := readiness_denies(plan([fn, vendor_latency, dep_errors(["valkey", "vendor-recs"]), api_latency, canary_alarm, canary]))
 	ds == {"readiness: catalog-api calls dynamodb, but no alarm watches its errors (DependencyErrors)"}
 }
 
 test_external_dependency_needs_a_latency_alarm if {
-	ds := readiness_denies(plan([fn, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency]))
+	ds := readiness_denies(plan([fn, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency, canary_alarm, canary]))
 	ds == {"readiness: catalog-api calls external vendor-recs, but no alarm watches its latency (DependencyLatency)"}
 }
 
 test_viewer_latency_alarm_required if {
-	ds := readiness_denies(plan([fn, vendor_latency, dep_errors(["valkey", "dynamodb", "vendor-recs"])]))
+	ds := readiness_denies(plan([fn, vendor_latency, dep_errors(["valkey", "dynamodb", "vendor-recs"]), canary_alarm, canary]))
 	ds == {"readiness: no alarm on what viewers feel (AWS/ApiGateway Latency)"}
 }
 
@@ -92,5 +104,29 @@ api_latency_math := alarm("api_latency", {
 })
 
 test_metric_math_latency_alarms_count if {
-	count(readiness_denies(plan([fn, vendor_latency_math, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency_math]))) == 0
+	count(readiness_denies(plan([fn, vendor_latency_math, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency_math, canary_alarm, canary]))) == 0
+}
+
+# 19/11/2026: a canary config is part of readiness (ADR 0016).
+no_canary := "readiness: catalog-api has no canary config (a /canary parameter with a weight <= 50% and rollback alarms in this plan)"
+
+almost_ready := [fn, vendor_latency, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api_latency, canary_alarm]
+
+test_a_service_needs_a_canary_config if {
+	readiness_denies(plan(almost_ready)) == {no_canary}
+}
+
+test_a_canary_of_everything_is_not_a_canary if {
+	readiness_denies(plan(array.concat(almost_ready, [param({"weight": 1, "minutes": 5, "alarms": ["sr-acme-tv-dev-canary-errors"]})]))) == {no_canary}
+}
+
+test_a_canary_watching_an_alarm_that_is_not_in_the_plan_is_not_one if {
+	cfg := {"weight": 0.1, "minutes": 5, "alarms": ["sr-acme-tv-dev-canary-errors", "gone"]}
+	readiness_denies(plan(array.concat(almost_ready, [param(cfg)]))) == {no_canary}
+}
+
+test_a_canary_without_its_own_error_alarm_is_not_one if {
+	cfg := {"weight": 0.1, "minutes": 5, "alarms": ["sr-acme-tv-dev-api-latency"]}
+	api := alarm("api_latency", object.union(api_latency.values, {"alarm_name": "sr-acme-tv-dev-api-latency"}))
+	readiness_denies(plan([fn, vendor_latency, dep_errors(["valkey", "dynamodb", "vendor-recs"]), api, canary_alarm, param(cfg)])) == {no_canary}
 }

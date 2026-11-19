@@ -107,7 +107,7 @@ def cmd_incident(args) -> int:
 
 
 def cmd_deploy(args) -> int:
-    return deploy.deploy(args.service, args.env)
+    return deploy.deploy(args.service, args.env, all_at_once=args.all_at_once)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -136,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
 
     dp = sub.add_parser("deploy", help="ship app code (lane 2): new version, alias live")
     dp.add_argument("service", choices=["catalog-api", "vendor-mock", "incident"])
+    dp.add_argument("--all-at-once", action="store_true",
+                    help="catalog-api: skip the 10%%/5 min canary window (alarms still checked)")
 
     ip = sub.add_parser("incident", help="incident records kept by the operator")
     ip.add_argument("what", choices=["undo-check", "sync-demo"])

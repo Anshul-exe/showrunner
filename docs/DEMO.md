@@ -1,8 +1,9 @@
-# Demo script (about 9 minutes, `dev` only)
+# Demo script (`dev` only): 6, 12 or 30 minutes
 
 Everything runs against `dev`. Nothing is deployed or rebuilt during the demo: the one
 live, long-running piece is scenario S1, and it runs in the background. Every segment
-has a recorded fallback; if something is slow live, open the recording.
+has a recorded fallback; if something is slow live, open the recording. Only what works
+today is in these runs (19/11/2026); what isn't built is in the roadmap segment.
 
 ## Before (10 minutes ahead)
 
@@ -15,25 +16,70 @@ export AWS_PROFILE=showrunner AWS_REGION=us-east-1   # sr defaults to this profi
 ./sr demo watch                # second terminal: per-dependency p95 every 15 s
 ```
 
-Open in one browser window: the README, the CloudWatch dashboard (`sr-dev-operations`), the
-repo's Issues filtered by `label:incident`, and PR #3 (plan comments).
+S1 needs a quiet dev: start it only if nothing was applied or deployed to dev in the last
+15 minutes (otherwise the loop rightly names that change as a hypothesis).
 
-## Segments
+Open in one browser window: the README, the CloudWatch dashboard (`sr-dev-operations`),
+the repo's Issues filtered by `label:incident`, PR #5 (plan comments), PR #4 (supply
+chain) and PR #10 (review agents).
 
-| When | Segment | Show | Fallback |
+## Segments (used by the runs below)
+
+| Id | Segment | Show | Fallback |
 |---|---|---|---|
-| 0:00 | Frame | README: the four bullets, the diagram, the measured timings | - |
-| 1:00 | Start S1 | `./sr demo s1 start`: "the vendor gets 1.5 s slower for acme-tv; this pages in ~1-2 minutes" | [S1 recording](demo/S1.md) |
-| 1:30 | Self-service | a fourth customer, live: the commands below open a PR with one 10-line file; while CI plans it, show `acme-tv/dev.yaml` -> one module; then the plan comment: 61 to add, policy checks incl. **readiness** (every dependency alarmed, every alarm has a runbook) and the apply-role access check | [PR #5](https://github.com/Anshul-exe/showrunner/pull/5): the third customer, lumen-kids, added the same way (plan comments per stack) |
-| 3:00 | Supply chain | PR #4: a "routine" dependency whose postinstall hunts for credentials; the `supply-chain` check: scripts off, then run on purpose: finds nothing, harden-runner blocks `exfil.example.com` | [recording](demo/supply-chain.md) |
-| 3:45 | Review agents | the seeded PR (open it before the demo: [commands](demo/review-agents.md#run-it-live)): one comment, **1 confirmed** (`s3:*` on `*`), **2 refuted by code checks** (an action with no resource type; a Deny), collapsed with the reason; the gate fails; "the model enumerates, code judges" | [recorded run](demo/review-agents.md), 18/11/2026 |
-| 4:30 | Incident | the issue: evidence table, H1 vendor confirmed, **the cache refuted with Valkey's µs**, A1 with the exact diff, blast radius and rollback; comment `/approve A1`; `./sr demo watch` p95 falls with no deploy; the audit rows. Expect (18/11/2026): proposal 13 s after the alarm, flag live ~1 min after `/approve`, recovered ~3 min later | [issue #6](https://github.com/Anshul-exe/showrunner/issues/6): the whole loop on 18/11/2026, alarm -> recovered 334 s, PIR at the end; [timeline](demo/incident.md) |
-| 7:00 | Network case file (S3) | recorded, not live (CloudTrail takes ~3-4 min): [case file](demo/case-files/S3.md): a rule revoked by hand; H1 `network` **confirmed by independent checks** (the live rule vs Terraform, Reachability Analyzer blocked at the cache's SG, flow-log REJECTs) and CloudTrail names who; the fix is a pipeline run, so the loop **recommends** it and executes nothing. Then the honest part: the first drill found that a cache outage was a full outage (503 after 8.8 s); a circuit breaker fixed it | the same case file (two runs, 18/11/2026) |
-| 8:00 | Roadmap | [ROADMAP.md](ROADMAP.md): tiers 2-3 against the three six-month goals | - |
+| F | Frame | README: the four bullets, the diagram, the measured timings | - |
+| S1 | Start S1 | `./sr demo s1 start`: "the vendor gets 1.5 s slower for acme-tv; this pages in ~1-2 minutes" | [S1 recording](demo/S1.md) |
+| C | Self-service | a fourth customer, live: the commands below open a PR with one 10-line file; while CI plans it, show `acme-tv/dev.yaml` -> one module; then the plan comment: resources to add, policy checks incl. **readiness** (every dependency alarmed, every alarm has a runbook, a canary config) and the apply-role access check | [PR #5](https://github.com/Anshul-exe/showrunner/pull/5): the third customer, lumen-kids, added the same way (plan comments per stack) |
+| SC | Supply chain | PR #4: a "routine" dependency whose postinstall hunts for credentials; the `supply-chain` check: scripts off, then run on purpose: finds nothing, harden-runner blocks `exfil.example.com` | [recording](demo/supply-chain.md) |
+| RA | Review agents | PR #10: one comment, **1 confirmed** (`s3:*` on `*`), **2 refuted by code checks** (an action with no resource type; a Deny), collapsed with the reason; the required check fails; "the model enumerates, code judges". Then the override: `accept-risk` + a reason comment, the re-run passes, the audit row | [recorded run](demo/review-agents.md) (18/11/2026: gate failed in 23 s, re-run passed in 30 s, $0.00018) |
+| I | Incident | the issue: evidence table, H1 vendor confirmed, **the cache refuted with Valkey's µs**, A1 with the exact diff, blast radius and rollback; comment `/approve A1`; `./sr demo watch` p95 falls with no deploy; the audit rows. Expect (18/11/2026): proposal 13 s after the alarm, flag live ~1 min after `/approve`, recovered ~3 min later | [issue #6](https://github.com/Anshul-exe/showrunner/issues/6): the whole loop on 18/11/2026, alarm -> recovered 334 s, PIR at the end; [timeline](demo/incident.md) |
+| FA | The false alarm | recorded: two cold-start requests after a deploy fired a latency alarm; the loop confirmed a slow vendor from one call. The fix ([ADR 0015](adr/0015-incident-checks-need-history.md)): sample counts are evidence, "not enough history" is a verdict, every change in the window is a hypothesis | the ADR and the replay of the stored evidence in it |
+| N | Network case file (S3) | recorded, not live (CloudTrail takes ~3-4 min): [case file](demo/case-files/S3.md): a rule revoked by hand; H1 `network` **confirmed by independent checks** (the live rule vs Terraform, Reachability Analyzer blocked at the cache's SG, flow-log REJECTs) and CloudTrail names who; the fix is a pipeline run, so the loop **recommends** it and executes nothing. Then the honest part: the first drill found that a cache outage was a full outage (503 after 8.8 s); a circuit breaker fixed it | the same case file (two runs, 18/11/2026) |
+| $ | Cost | [COST.md](COST.md): what runs all month and why (NAT instance, pooled cache), what's never created | - |
+| R | Roadmap | [ROADMAP.md](ROADMAP.md): tiers 2-3 against the three six-month goals; not built yet: the container image, S2, the customer page (blocked by an AWS account check) | - |
+
+## 6 minutes
+
+| When | Segment |
+|---|---|
+| 0:00 | F (1 min) |
+| 1:00 | S1 start, then RA (1.5 min) while it pages |
+| 2:30 | I (3 min): the issue, `/approve A1`, the p95 falling |
+| 5:30 | one sentence each on N and SC ("recorded; happy to open them"), stop |
+
+## 12 minutes
+
+| When | Segment |
+|---|---|
+| 0:00 | F |
+| 1:00 | S1 start |
+| 1:30 | C (open the PR; come back to the plan comment at 6:30) |
+| 3:00 | SC |
+| 3:45 | RA |
+| 4:30 | I |
+| 7:00 | C's plan comment, then N |
+| 9:00 | FA |
+| 10:30 | R, then questions |
+
+## 30 minutes
+
+| When | Segment |
+|---|---|
+| 0:00 | F, with the problem each pillar answers (3 min) |
+| 3:00 | S1 start |
+| 3:30 | C: open the PR, walk the module and the policies (readiness, never-create, tags) while CI plans |
+| 8:00 | SC: both layers, and the harden-runner log |
+| 11:00 | RA: the comment, the refuted list and why each was refuted, the override and its audit row, the ruleset |
+| 15:00 | I: the issue end to end, `/approve A1`, recovery, the PIR, the audit rows |
+| 20:00 | C's plan comment: what the apply-role access check is for (ADR 0010) |
+| 21:30 | FA: the false alarm I caused and the fix |
+| 23:30 | N: the S3 case file and the circuit breaker |
+| 26:00 | $ and R |
+| 28:00 | questions |
 
 After: `./sr demo s1 stop` (or `./sr demo reset`), then `./sr preflight`.
 
-## The live customer PR (segment 1:30)
+## The live customer PR (segment C)
 
 ```bash
 git switch -c customer/harbor-news-dev

@@ -33,6 +33,9 @@ except where marked.
 | S3 Standard (page files, a few KB) | ~$0.023/GB-month: effectively $0 |
 | VPC Reachability Analyzer | $0.10 per analysis (tier 2, S3) |
 | Route 53 Resolver query logging | no charge for logging itself; CloudWatch Logs ingestion and storage as above |
+| CodeDeploy | not usable: not on the Free plan (`SubscriptionRequiredException`, 19/11/2026); deployments to Lambda would have no charge. ADR 0016 |
+| Lambda weighted alias routing (the lane-2 canary) | no charge; requests are billed as usual |
+| GitHub artifact attestations | free for public repositories |
 
 ## The core, running all month (tier 1)
 
@@ -54,6 +57,7 @@ except where marked.
 | PR review agents (tier 2): Nova Lite + the `sr-ops-agent-budget` counter table | < $0.40 | measured $0.00017 per review (1,541 + 328 tokens, 18/11/2026); hard caps 2 calls/run and 40 calls/day: worst case 1,200 calls x ~$0.0003 = ~$0.36/month; the table is on-demand, one item per day, 7-day TTL |
 | Network evidence (tier 2, S3/S4): Reachability Analyzer + Resolver query logs | < $1 | Reachability runs only on a network signal, capped at 2 a day in code (worst case $6/month; one run per S3 drill in practice); Resolver query logs: 3-day retention, ingestion only while there is traffic (volume not measured yet) |
 | Latency alarms as metric math (p95 only in minutes with >= 5 calls, 19/11/2026) | +$0.20 per customer | each latency alarm now reads 2 metrics instead of 1 |
+| Canary alarm (API 5xx, tier 2, ADR 0016) | +$0.10 per customer | one standard alarm; the canary itself (alias weights) is free |
 | **Total** | **~$17-22** | target in the brief: $22-28 |
 
 Each new customer adds ~$0.60-2 (its 6 metrics, 5 alarm metrics, a table, a function):

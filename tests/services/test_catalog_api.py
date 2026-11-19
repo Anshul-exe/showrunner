@@ -220,3 +220,14 @@ def test_cache_breaker_skips_the_cache_after_a_failure_then_retries():
     now[0] += svc.cache_retry_after_s + 1
     get(svc, "/titles/t01")
     assert len(made) == 2  # breaker closed: one new attempt
+
+
+def test_every_response_says_which_lambda_version_answered(monkeypatch):
+    """During a canary, ~10% of responses carry the new version (ADR 0016)."""
+    svc, _, _ = make_service()
+    event = {"rawPath": "/titles", "requestContext": {"http": {"method": "GET"}}}
+    assert svc.handle(event, "r")["headers"]["x-sr-version"] == "local"
+    monkeypatch.setenv("AWS_LAMBDA_FUNCTION_VERSION", "7")
+    resp = svc.handle(event, "r")
+    assert resp["headers"]["x-sr-version"] == "7"
+    assert resp["headers"]["cache-control"] == "no-store"

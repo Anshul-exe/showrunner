@@ -6,13 +6,15 @@
 #   - a service's every dependency has an error alarm; external ones a latency alarm
 #     too ("endpoint-level metrics for every dependency" as a condition of readiness)
 #   - viewers' latency (API Gateway p95) is alarmed
+#   - a canary config (ADR 0016): new code reaches a share of viewers first, and the
+#     deploy rolls back on its own when an alarm fires
 #
 # `runbooks` must equal the files in ops/runbooks (tests/test_policy_data.py).
 package main
 
 import rego.v1
 
-runbooks := {"api-latency", "dependency-errors", "vendor-latency"}
+runbooks := {"api-latency", "canary-errors", "dependency-errors", "vendor-latency"}
 
 # What each service calls, and which of those are outside our control.
 services := {"catalog-api": {
@@ -104,4 +106,27 @@ api_latency_alarm if { # metric math, e.g. p95 only in minutes with enough reque
 	some m in q.metric
 	m.namespace == "AWS/ApiGateway"
 	m.metric_name == "Latency"
+}
+
+# A canary config (ADR 0016): the stack publishes /showrunner/<env>/customers/<c>/canary
+# for the deploy tool, with a weight below 100% and rollback alarms that exist in this
+# plan, one of them the canary's own. Without it, lane 2 would move `live` all at once.
+canary_configs contains c if {
+	some p in planned_resources
+	p.type == "aws_ssm_parameter"
+	endswith(p.values.name, "/canary")
+	c := json.unmarshal(p.values.value)
+	c.weight > 0
+	c.weight <= 0.5
+	c.minutes >= 1
+	every name in c.alarms { name in {a.values.alarm_name | some a in alarms} }
+	some a in alarms
+	a.values.tags.runbook == "canary-errors"
+	a.values.alarm_name in c.alarms
+}
+
+deny contains msg if {
+	some svc in deployed_services
+	count(canary_configs) == 0
+	msg := sprintf("readiness: %s has no canary config (a /canary parameter with a weight <= 50%% and rollback alarms in this plan)", [svc])
 }

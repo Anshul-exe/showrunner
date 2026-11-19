@@ -19,3 +19,4 @@ context, decision, consequences, and when we'd decide differently.
 | [0013](0013-review-agents.md) | PR review agents: one specialist; the verifier runs code checks before it asks a model | accepted |
 | [0014](0014-network-evidence.md) | Network evidence in the incident loop; Reachability Analyzer only on a network signal, 2 a day | accepted |
 | [0015](0015-incident-checks-need-history.md) | Incident checks need history ("not enough history" is a verdict); every change in the window is a hypothesis | accepted |
+| [0016](0016-lane-2-canary.md) | Lane 2 canary on the Lambda alias (CodeDeploy isn't on the Free plan); deploy only an attested zip, by digest | accepted |

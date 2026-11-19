@@ -10,7 +10,7 @@ six-month goals there, so each tier is also a plan for those goals.
 | Core today | Full design | Tier |
 |---|---|---|
 | one env, `dev` | dev + prod, prod behind a required reviewer (the `prod` GitHub environment already gates ops-core) | 3 |
-| Lambda zip, alias moved at once | container image, ECR by digest, build provenance; CodeDeploy canary with alarm rollback | 2 |
+| Lambda zip, alias moved at once (canary + provenance on the zip since 19/11/2026, ADR 0016) | container image, ECR by digest, build provenance; canary with alarm rollback | 2 |
 | API Gateway URL | CloudFront + S3 player page per customer | 2 |
 | incident verifier only | PR review agents: router -> specialist -> verifier | 2 |
 | scenario S1 only | case files S3 (security-group drift), S4 (DNS) with flow logs, Resolver query logs, Reachability Analyzer | 2 |
@@ -36,8 +36,14 @@ six-month goals there, so each tier is also a plan for those goals.
    *Status 19/11/2026:* built (ADR 0014). S3 drilled on dev twice (found and fixed a
    cache-outage-is-a-full-outage bug); S4 unit-tested, runs after the CI apply of the
    Resolver logs and flags schema.
-5. **Safe deploys** (P7, P12): CodeDeploy canary + scenario S2 (bad deploy rolled back
-   by alarm); container image + provenance + deploy by digest.
+5. **Safe deploys** (P7, P12): canary + scenario S2 (bad deploy rolled back by alarm);
+   container image + provenance + deploy by digest.
+   *Status 19/11/2026:* canary, provenance and deploy-by-digest built for the zip (ADR
+   0016). CodeDeploy isn't on the AWS Free plan, so the deploy tool drives the Lambda
+   alias weights itself (10% for 5 minutes, rolled back on the API's 5xx or latency
+   alarm); the readiness gate requires a canary config. CI deploys after the owner
+   applies the bootstrap change; until then `./sr deploy catalog-api` runs the same
+   canary. Not built yet: the container image, the S2 drill.
 
 ## Tier 3: the full design
 
