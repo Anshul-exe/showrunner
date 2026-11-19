@@ -35,6 +35,7 @@ chain) and PR #10 (review agents).
 | I | Incident | the issue: evidence table, H1 vendor confirmed, **the cache refuted with Valkey's µs**, A1 with the exact diff, blast radius and rollback; comment `/approve A1`; `./sr demo watch` p95 falls with no deploy; the audit rows. Expect (18/11/2026): proposal 13 s after the alarm, flag live ~1 min after `/approve`, recovered ~3 min later | [issue #6](https://github.com/Anshul-exe/showrunner/issues/6): the whole loop on 18/11/2026, alarm -> recovered 334 s, PIR at the end; [timeline](demo/incident.md) |
 | FA | The false alarm | recorded: two cold-start requests after a deploy fired a latency alarm; the loop confirmed a slow vendor from one call. The fix ([ADR 0015](adr/0015-incident-checks-need-history.md)): sample counts are evidence, "not enough history" is a verdict, every change in the window is a hypothesis | the ADR and the replay of the stored evidence in it |
 | N | Network case file (S3) | recorded, not live (CloudTrail takes ~3-4 min): [case file](demo/case-files/S3.md): a rule revoked by hand; H1 `network` **confirmed by independent checks** (the live rule vs Terraform, Reachability Analyzer blocked at the cache's SG, flow-log REJECTs) and CloudTrail names who; the fix is a pipeline run, so the loop **recommends** it and executes nothing. Then the honest part: the first drill found that a cache outage was a full outage (503 after 8.8 s); a circuit breaker fixed it | the same case file (two runs, 18/11/2026) |
+| D | Safe deploy | [the canary record](demo/canary.md): an attested zip from `main` (`gh attestation verify` output), 10% for 5 minutes on each customer, the alias mid-canary, promoted after 320-340 s; why not CodeDeploy (not on the Free plan) and the rollback bug it avoids (Terraform would have moved `live` onto a rejected build) | the same record (19/11/2026); recorded only: a deploy takes ~6 minutes |
 | $ | Cost | [COST.md](COST.md): what runs all month and why (NAT instance, pooled cache), what's never created | - |
 | R | Roadmap | [ROADMAP.md](ROADMAP.md): tiers 2-3 against the three six-month goals; not built yet: the container image, S2, the customer page (blocked by an AWS account check) | - |
 
@@ -74,8 +75,9 @@ chain) and PR #10 (review agents).
 | 20:00 | C's plan comment: what the apply-role access check is for (ADR 0010) |
 | 21:30 | FA: the false alarm I caused and the fix |
 | 23:30 | N: the S3 case file and the circuit breaker |
-| 26:00 | $ and R |
-| 28:00 | questions |
+| 25:30 | D: the canary record |
+| 27:00 | $ and R |
+| 28:30 | questions |
 
 After: `./sr demo s1 stop` (or `./sr demo reset`), then `./sr preflight`.
 
@@ -119,5 +121,6 @@ after the demo if the 3 extra alarms ($0.10 each per month) aren't wanted.
 - **The vendor alarm stays red after the fix:** with the fallback on, the vendor metric
   mostly stops, so the alarm has little data to clear on. Recovery is checked on the
   API p95, which is what users see.
-- **Traffic capped at 4 rps:** the account's Lambda concurrency quota is 10 (new
-  account); Little's law, see `tools/sr/traffic.py`.
+- **Traffic capped at 4 rps:** only while the account's Lambda concurrency quota is 10
+  (new accounts); Little's law, see `tools/sr/traffic.py`. The quota is 400 since
+  19/11/2026 (`sr preflight`), so the cap is 20 rps.
