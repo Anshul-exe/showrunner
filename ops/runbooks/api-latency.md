@@ -48,6 +48,17 @@ traffic. And if an alarm does fire on thin traffic, the loop's checks say "not e
 history" instead of blaming a dependency, and any deploy in the 15 minutes before is
 always a hypothesis (ADR 0015).
 
+**OK is not "recovered" (a production trap).** Quiet minutes count as not breaching,
+so this alarm also goes **OK when traffic stops**: an outage that drives viewers away,
+or a client that gave up, looks exactly like a fix. On 19/11/2026 (issue #15) the demo
+traffic ended a minute before the fallback went live; the alarms went OK on missing
+data, and the loop's recovery check, which then read only the p95, called it a failed
+recovery. Neither was true: missing data is neither a recovery nor a failure. Before
+you call it recovered, check the API's request **count** for the same minutes. The
+loop now does: with no traffic it says "can't verify: no traffic since HH:MM" (label
+`unverified`). In production, pair latency alarms with a traffic floor (a `Count`
+alarm, or a synthetic probe that always sends requests).
+
 **First question after a deploy.** If `deploys` in the evidence shows a version
 published minutes before the alarm, suspect the deploy (cold starts, a slower code
 path) before any dependency. Roll back with the alias (`rollback:` in the deploy

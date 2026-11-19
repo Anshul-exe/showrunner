@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 
 import appconfig
 import common
+import traffic
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "ops" / "lib"))
 from opslib import network  # noqa: E402
@@ -32,8 +34,31 @@ S1_CUSTOMER = "acme-tv"
 S1_LATENCY_MS = 1500
 
 
+S1_TRAFFIC_MIN_LEFT = 20  # alarm ~4 min + approval + recovery checks (10 min): the loop needs viewers
+
+
+def traffic_warning(customer: str, now: float | None = None) -> str | None:
+    """S1 needs traffic to the customer until the recovery check is done; issue #15
+    (19/11/2026) escalated because the demo traffic ended before the fix went live."""
+    st = traffic.running(now=now)
+    now = now or time.time()
+    if st is None:
+        return (f"WARNING: no `sr demo traffic` running. Start it first, for {customer}, for 40 minutes: "
+                f"./sr demo traffic --minutes 40 --rps 3 --customer {customer}")
+    if customer not in st["customers"]:
+        return f"WARNING: the running traffic doesn't include {customer} (it sends to {', '.join(st['customers'])})."
+    left = (st["ends_at"] - now) / 60
+    if left < S1_TRAFFIC_MIN_LEFT:
+        return (f"WARNING: the traffic ends in {left:.0f} min ({time.strftime('%H:%M', time.localtime(st['ends_at']))}); "
+                f"the loop needs viewers for ~{S1_TRAFFIC_MIN_LEFT} min to check the recovery. "
+                "Restart it with --minutes 40, or the check will say 'no traffic'.")
+    return None
+
+
 def s1(action: str | None, env: str) -> int:
     if action == "start":
+        if warning := traffic_warning(S1_CUSTOMER):
+            print(warning)
         r = appconfig.set_keys(S1_CUSTOMER, env, "chaos", {"vendor_latency_ms": S1_LATENCY_MS}, "S1 start: vendor +1500 ms")
         print(f"S1 started: {S1_CUSTOMER} vendor latency +{S1_LATENCY_MS} ms (deployment #{r['deployment']}, live in {r['seconds']} s).")
         print("Run traffic (./sr demo traffic) and watch (./sr demo watch): the vendor alarm should fire in ~3 min.")

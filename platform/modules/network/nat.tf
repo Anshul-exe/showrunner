@@ -12,10 +12,6 @@
 # internet (vendor calls, AppConfig polls fail; DynamoDB still works via its gateway
 # endpoint). That's scenario S5. In production: one NAT gateway per AZ.
 
-data "aws_ssm_parameter" "al2023_arm64" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
-}
-
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
 
@@ -102,9 +98,12 @@ resource "aws_iam_instance_profile" "nat" {
 
 resource "aws_launch_template" "nat" {
   #checkov:skip=CKV_AWS_88:A NAT instance needs a public IP; inbound is closed (SG) and there is no key pair
-  name_prefix   = "${var.name}-nat-"
-  description   = "NAT instance for ${var.name}"
-  image_id      = data.aws_ssm_parameter.al2023_arm64.value
+  name_prefix = "${var.name}-nat-"
+  description = "NAT instance for ${var.name}"
+  # Pinned (ADR 0003). Marked sensitive only because the SSM value it replaced was: a
+  # change of sensitivity alone is a plan diff, and a launch template diff can cut a new
+  # version, which would replace the instance. The ID isn't secret.
+  image_id      = sensitive(var.nat_ami_id)
   instance_type = var.nat_instance_type
 
   iam_instance_profile {

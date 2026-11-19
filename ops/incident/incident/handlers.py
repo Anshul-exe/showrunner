@@ -114,9 +114,17 @@ def github(event: dict, _ctx=None) -> dict:
         audit.record(inc["id"], "note", detail=event["text"][:300], duration_ms=_ms(t0))
         return state
     if step == "escalate":
-        reason = event["reason"]
+        reason, label = event["reason"], "escalated"
+        check = state.get("check") or {}
+        if check.get("status") == "no-traffic":  # not a failed recovery: nothing to measure (#15)
+            since = check.get("no_traffic_since")
+            reason = (f"Can't verify recovery: no traffic since {since} UTC" if since else
+                      "Can't verify recovery: no traffic in the last hour") + (
+                      " (not a failed recovery: a missing data point is neither). The action is live; "
+                      "send traffic and check the API p95, or close the issue with a note.")
+            label = "unverified"
         gh.comment(inc["issue"], f"**Escalation:** {reason} A human needs to take this incident. Issue stays open.")
-        gh.add_labels(inc["issue"], ["escalated"])
+        gh.add_labels(inc["issue"], [label])
         topic = os.environ.get("ALERTS_TOPIC_ARN")
         if topic:
             _client("sns").publish(TopicArn=topic, Subject=f"Showrunner escalation: {render.title(alarm)}"[:100],
@@ -190,7 +198,8 @@ def evidence_fn(event: dict, _ctx=None) -> dict:
         attempts = int((state.get("check") or {}).get("attempts", 0)) + 1
         if result["recovered"]:
             _audit().record(inc["id"], "check", detail=f"recovered: API p95 {result['api_p95_ms']} ms "
-                            f"< {result['threshold_ms']:.0f} ms", output=result, duration_ms=_ms(t0))
+                            f"< {result['threshold_ms']:.0f} ms ({result['requests']} requests in "
+                            f"{evidence.RECOVERY_WINDOW_MIN} min)", output=result, duration_ms=_ms(t0))
         return {**state, "check": {**result, "attempts": attempts}}
     raise ValueError(event["step"])
 

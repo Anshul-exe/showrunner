@@ -119,10 +119,10 @@ outage became a full outage: 503 after 8.8 s), fixed with a circuit breaker; the
 served every request. The Terraform half (Resolver logs, evidence IAM, flags schema) was applied through CI
 on 19/11/2026; the loop's new code isn't deployed to AWS yet, so **S4 (DNS) is built and
 unit-tested but not yet run**.
-Canary deploys ([ADR 0016](docs/adr/0016-lane-2-canary.md)): CodeDeploy isn't on the
-AWS Free plan, so the deploy tool runs the canary on the Lambda alias (10% for 5
-minutes, rolled back on the API's 5xx or latency alarm), and CI deploys only a zip it
-attested on `main`, by digest. First real run on dev on 19/11/2026: three customers
+Canary deploys ([ADR 0016](docs/adr/0016-lane-2-canary.md)): CodeDeploy needs a paid
+AWS plan, so the deploy tool does what CodeDeploy does: a weighted Lambda alias (10% for
+5 minutes), rollback driven by the API's 5xx and latency alarms, and re-publishing the
+good build after a rollback. CI deploys only a zip it attested on `main`, by digest. First real run on dev on 19/11/2026: three customers
 promoted after 320-340 s ([record](docs/demo/canary.md)); **S2 (the rollback) not run
 yet**.
 

@@ -21,6 +21,7 @@ module "network" {
   region                   = var.region
   cidr                     = var.cidrs[var.env]
   azs                      = var.azs
+  nat_ami_id               = var.nat_ami_id
   permissions_boundary_arn = local.boundary
 }
 

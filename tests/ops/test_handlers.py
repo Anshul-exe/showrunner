@@ -79,3 +79,38 @@ def test_alarms_whose_runbook_says_no_incident_open_nothing(monkeypatch):
 
     assert handlers.parse_alarm(event("sr-acme-tv-dev-canary-errors")) is None
     assert handlers.parse_alarm(event("sr-acme-tv-dev-api-latency"))["kind"] == "api-latency"
+
+
+class FakeGitHub:
+    def __init__(self):
+        self.comments, self.labels = [], []
+
+    def comment(self, issue, body):
+        self.comments.append(body)
+        return f"https://x/{issue}"
+
+    def add_labels(self, issue, labels):
+        self.labels += labels
+
+
+def _escalate(monkeypatch, env, check):
+    table, _ = env
+    gh = FakeGitHub()
+    monkeypatch.setattr(handlers, "_github", lambda: gh)
+    monkeypatch.delenv("ALERTS_TOPIC_ARN", raising=False)
+    state = {"incident": {"id": "acme-tv-dev-1", "issue": 15, "url": "u"}, "alarm": ALARM, "check": check}
+    out = handlers.github({"step": "escalate", "state": state,
+                           "reason": "The API p95 did not recover within 10 minutes of the action."})
+    return gh, out
+
+
+def test_no_traffic_escalates_as_unverified_not_as_a_failed_recovery(env, monkeypatch):
+    gh, out = _escalate(monkeypatch, env, {"status": "no-traffic", "no_traffic_since": "13:06", "attempts": 10})
+    assert "Can't verify recovery: no traffic since 13:06 UTC" in gh.comments[0]
+    assert "did not recover" not in gh.comments[0] and gh.labels == ["unverified"]
+    assert out["escalated"].startswith("Can't verify")
+
+
+def test_a_real_failed_recovery_still_escalates_as_one(env, monkeypatch):
+    gh, out = _escalate(monkeypatch, env, {"status": "not-recovered", "api_p95_ms": [1600, 1500], "attempts": 10})
+    assert "did not recover" in gh.comments[0] and gh.labels == ["escalated"]

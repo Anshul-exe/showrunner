@@ -1,7 +1,11 @@
 # 0016: Lane 2 canary on the Lambda alias; deploy only an attested zip, by digest
 
 Status: accepted (19/11/2026). Tier 2 item 5 (BRIEF section 0), first part. Amends ADR
-0004 (lane 2 moved `live` all at once in the core).
+0004 (lane 2 moved `live` all at once in the core). Confirmed by the owner 19/11/2026.
+
+**In one line:** CodeDeploy needs a paid plan, so the deploy tool does what CodeDeploy
+does: a weighted alias (10% for 5 minutes), alarm-driven rollback, and re-publishing
+the good build so the next Terraform apply can't move traffic onto a rejected one.
 
 ## Context
 
