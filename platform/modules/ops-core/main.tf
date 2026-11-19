@@ -226,21 +226,30 @@ data "aws_iam_policy_document" "evidence" {
   # Reachability Analyzer path/analysis, which change nothing in the network.
   statement {
     sid = "NetworkReadOnly"
-    # Describe*/Get* don't support resource-level permissions. The list is the EC2 read
-    # part of AWS's AmazonVPCReachabilityAnalyzerFullAccessPolicy (v5) minus Transit
-    # Gateway/VPN/Direct Connect, which this platform doesn't have: the analyzer reads
-    # the path's components with the caller's permissions.
+    # None of these has a resource type in the Service Authorization Reference (checked
+    # 19/11/2026, review/review/iam.py NO_RESOURCE_TYPE): `*` is the only valid resource.
+    # The list is the EC2 read part of AWS's AmazonVPCReachabilityAnalyzerFullAccessPolicy
+    # (v5) minus Transit Gateway/VPN/Direct Connect, which this platform doesn't have: the
+    # analyzer reads the path's components with the caller's permissions.
     actions = [
       "ec2:DescribeSecurityGroups", "ec2:DescribeNetworkInterfaces", "ec2:DescribeNetworkInsightsAnalyses",
       "ec2:DescribeNetworkInsightsPaths", "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls",
       "ec2:DescribeVpcs", "ec2:DescribeVpcEndpoints", "ec2:DescribeVpcEndpointServiceConfigurations",
       "ec2:DescribeInstances", "ec2:DescribeInternetGateways", "ec2:DescribeNatGateways", "ec2:DescribeAddresses",
-      "ec2:DescribePrefixLists", "ec2:DescribeManagedPrefixLists", "ec2:GetManagedPrefixListEntries",
+      "ec2:DescribePrefixLists", "ec2:DescribeManagedPrefixLists",
       "ec2:DescribeVpcPeeringConnections", "ec2:DescribeAvailabilityZones", "ec2:DescribeRegions",
       "tiros:CreateQuery", "tiros:GetQueryAnswer", "tiros:GetQueryExplanation",
-      "logs:GetQueryResults", "logs:StopQuery",
+      "logs:StopQuery",
     ]
     resources = ["*"]
+  }
+
+  # Has a resource type (prefix-list), so it's scoped: this account's lists and the
+  # AWS-managed ones (owner `aws`, e.g. the DynamoDB gateway endpoint's routes).
+  statement {
+    sid       = "NetworkPrefixListEntries"
+    actions   = ["ec2:GetManagedPrefixListEntries"]
+    resources = ["${local.arn.ec2}:prefix-list/*", "arn:aws:ec2:${local.region}:aws:prefix-list/*"]
   }
 
   statement {
@@ -291,7 +300,7 @@ data "aws_iam_policy_document" "evidence" {
 
   statement {
     sid       = "FlowAndResolverLogsQuery"
-    actions   = ["logs:StartQuery"]
+    actions   = ["logs:StartQuery", "logs:GetQueryResults"]                           # both have the log-group resource type
     resources = [for env in var.envs : "${local.arn.logs}:log-group:/sr/sr-${env}/*"] # `*` covers the `:*` form
   }
 

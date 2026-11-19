@@ -43,13 +43,37 @@ names don't resolve, and a path check.
 
 ## Permissions (evidence role, ops-core)
 
-Read-only network calls (Describe*/Get*, no resource-level permissions exist for them),
-`logs:StartQuery` only on `/sr/sr-<env>/*`, `elasticache:DescribeServerlessCaches`,
+Read-only network calls on `*`: 23 exact action names, each checked against the Service
+Authorization Reference on 19/11/2026 (none has a resource type, so `*` is the only valid
+resource). Two reads that *do* have a resource type are scoped instead:
+`ec2:GetManagedPrefixListEntries` to prefix lists (this account's and the AWS-managed
+ones), and `logs:GetQueryResults` with `logs:StartQuery` only on `/sr/sr-<env>/*`.
+`elasticache:DescribeServerlessCaches`,
 Reachability Analyzer create/start, `ec2:CreateTags` only while creating its own path or
 analysis (`ec2:CreateAction` condition), delete **only for paths tagged `sr=reachability`**, and `dynamodb:UpdateItem` on the budget table only for
 `reachability#*` keys. The analyzer reads the path's components with the caller's
 permissions, so the read list follows AWS's `AmazonVPCReachabilityAnalyzerFullAccessPolicy`
 (v5) minus Transit Gateway, VPN and Direct Connect, which this platform doesn't have.
+
+### Why the review agents don't flag the `*` statement
+
+The review verifier (ADR 0013) refutes a wildcard finding only when **every** action in
+the statement is on `review/review/iam.py` `NO_RESOURCE_TYPE`. Before this change the list
+knew 2 of these 23 actions, so the PR would have failed its own gate on a false positive.
+The fix was to extend the list, under three rules (the user's decision, 19/11/2026):
+
+- **Exact names only, never patterns.** `ec2:Describe*` would also cover actions AWS adds
+  later, unchecked. A pattern (`ec2:Get*`, `s3:*`) on `*` is always confirmed; a test
+  pins that.
+- **Each name checked against the reference**, with the source page in a comment.
+  Machine-readable copy used for the check:
+  `https://servicereference.us-east-1.amazonaws.com/` (`ec2`, `tiros`, `logs`).
+- **An action with a resource type never goes on the list**, even a read: it gets its own
+  scoped statement. A statement mixing one of those with no-resource-type actions on `*`
+  stays a finding (tested).
+
+Alternative rejected: `accept-risk` on the case-files PR. It would have worked, but a
+reviewer that flags every Describe-on-`*` teaches people to override it.
 
 ## Consequences
 

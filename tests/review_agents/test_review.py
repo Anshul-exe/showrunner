@@ -149,6 +149,58 @@ def test_verifier_checks(repo, evidence, text, verdict, check):
     assert any(c["name"] == check for c in checks)
 
 
+# G1 (19/11/2026): exact names only. A pattern on `*` stays a finding even when every
+# action it happens to match today has no resource type.
+PATTERNS = """\
+data "aws_iam_policy_document" "evidence" {
+  statement {
+    sid       = "Patterned"
+    actions   = ["ec2:Get*"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "DescribeOnly"
+    actions   = ["ec2:DescribeSecurityGroups", "tiros:CreateQuery", "logs:StopQuery"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "HasAResourceType"
+    actions   = ["ec2:DescribeVpcs", "ec2:GetManagedPrefixListEntries"]
+    resources = ["*"]
+  }
+}
+"""
+
+
+@pytest.mark.parametrize("text,verdict", [
+    ('"ec2:Get*"', "confirmed"),
+    ('"ec2:DescribeSecurityGroups"', "refuted"),
+    ('"ec2:GetManagedPrefixListEntries"', "confirmed"),
+])
+def test_patterns_and_scopable_actions_on_star_stay_findings(tmp_path, text, verdict):
+    (tmp_path / FILE).parent.mkdir(parents=True)
+    (tmp_path / FILE).write_text(PATTERNS)
+    ev = core.build_evidence(make_diff(PATTERNS, first_added=2), None, [FILE])
+    line = next(i for i, l in enumerate(PATTERNS.splitlines(), 1) if text in l)
+    assert core.verdict_from(core.checks_for(finding("F1", line), ev, tmp_path)) == verdict
+
+
+def test_no_resource_type_list_is_exact_names_that_have_no_resource_type():
+    assert all(re.fullmatch(r"[a-z0-9-]+:[A-Za-z0-9]+", a) for a in iam.NO_RESOURCE_TYPE)
+    for scoped in ("ec2:GetManagedPrefixListEntries", "logs:GetQueryResults", "logs:StartQuery"):
+        assert scoped not in iam.NO_RESOURCE_TYPE
+
+
+def test_the_network_evidence_read_only_statement_is_not_a_finding():
+    """The real NetworkReadOnly statement in ops-core: every action has no resource type."""
+    tf = (Path(__file__).resolve().parents[2] / FILE).read_text()
+    st = iam.statement_at(tf, next(i for i, l in enumerate(tf.splitlines(), 1) if '"NetworkReadOnly"' in l) + 7)
+    assert st.resources == ["*"] and not st.wildcard_action
+    assert set(st.actions) <= iam.NO_RESOURCE_TYPE, set(st.actions) - iam.NO_RESOURCE_TYPE
+
+
 def test_finding_on_a_line_the_pr_did_not_change_is_refuted(repo, evidence):
     checks = core.checks_for(finding("F1", line_of('"ssm:GetParametersByPath"')), evidence, repo)
     assert core.verdict_from(checks) == "refuted" and checks[0]["name"] == "in-this-pr"
