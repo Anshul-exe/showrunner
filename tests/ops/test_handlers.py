@@ -1,6 +1,7 @@
 """triage -> verify -> act through the real handlers, Bedrock refusing (as on a new
 account) and AppConfig faked. AWS calls go to moto, never to a real account."""
 
+import json
 import boto3
 import pytest
 from moto import mock_aws
@@ -114,3 +115,19 @@ def test_no_traffic_escalates_as_unverified_not_as_a_failed_recovery(env, monkey
 def test_a_real_failed_recovery_still_escalates_as_one(env, monkeypatch):
     gh, out = _escalate(monkeypatch, env, {"status": "not-recovered", "api_p95_ms": [1600, 1500], "attempts": 10})
     assert "did not recover" in gh.comments[0] and gh.labels == ["escalated"]
+
+
+def test_a_failed_action_escalates_with_the_reason(env, monkeypatch):
+    """The state machine's Catch on Act puts the Lambda error in $.error (issue #17)."""
+    table, _ = env
+    gh = FakeGitHub()
+    monkeypatch.setattr(handlers, "_github", lambda: gh)
+    monkeypatch.delenv("ALERTS_TOPIC_ARN", raising=False)
+    cause = json.dumps({"errorMessage": "AppConfig rolled back deployment #22: nothing changed. The following "
+                        "CloudWatch monitors are in alarm: [sr-acme-tv-dev-dependency-errors]",
+                        "errorType": "RolledBack"})
+    state = {"incident": {"id": "acme-tv-dev-1", "issue": 17, "url": "u"}, "alarm": ALARM,
+             "error": {"Error": "RolledBack", "Cause": cause}}
+    handlers.github({"step": "escalate", "state": state,
+                     "reason": "The approved action failed to execute (see the execution history)."})
+    assert "RolledBack: AppConfig rolled back deployment #22: nothing changed" in gh.comments[0]

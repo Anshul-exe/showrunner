@@ -14,7 +14,7 @@ Every change goes through the fastest lane that can carry it:
 
 | Lane | What | How | Typical time |
 |---|---|---|---|
-| 1. Runtime | flags, TTLs, chaos, (later) event mode, vendor URL | AppConfig hosted config, JSON-schema validated, deployed with `sr-<env>-runtime` (immediate + 1-minute bake; the customer's dependency-errors alarm rolls it back). catalog-api polls every 15 s. | seconds to go live, no deploy |
+| 1. Runtime | flags, TTLs, chaos, (later) event mode, vendor URL | AppConfig hosted config, JSON-schema validated, deployed with `sr-<env>-runtime` (immediate + 1-minute bake; no automatic rollback since 19/11/2026: ADR 0017). catalog-api polls every 15 s. | seconds to go live, no deploy |
 | 2. App code | `services/*` | `./sr deploy <service>`: reproducible zip, `UpdateFunctionCode`, publish a version, move alias `live`. Rollback = move `live` back (printed by the deploy). | ~6 s per function |
 | 3. Infrastructure | `platform/*` | Terraform, only the stacks a change touches (`tools/ci/changed_stacks.py`): plan on the PR, apply on merge. | one customer stack plans in ~22 s |
 

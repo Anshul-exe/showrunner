@@ -63,3 +63,17 @@ and run by a human through the pipeline. Anything else (IAM, code) goes through 
 
 Scenario drills: S3 (security-group drift, [ops/scenarios](../scenarios/S3-sg-drift.md))
 and S4 (a typo'd vendor host in the flags, [S4](../scenarios/S4-dns-config.md)).
+
+## A fix rolled back by AppConfig (until 19/11/2026)
+
+This alarm used to be the **rollback monitor** of the customer's AppConfig environment.
+While it was in ALARM, AppConfig rolled back *every* deployment within seconds,
+including the fix for the incident that fired it (issue #17: `s4 stop` was rolled back
+in 5 s with "The following CloudWatch monitors are in alarm"). With a 2-of-3-minute
+alarm and a 1-minute bake it also never caught a bad change. The monitor is gone
+(ADR 0017): a bad config fires this alarm, and the loop proposes rolling it back.
+
+If you ever see "AppConfig rolled back deployment #n" from `sr` or the loop (they
+report it as a failure now), check `aws appconfig get-environment ... --query Monitors`:
+the environment should have none. A monitor there is drift: re-apply the customer
+stack.

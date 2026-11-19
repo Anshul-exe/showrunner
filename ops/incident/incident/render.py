@@ -78,7 +78,8 @@ def _proposal(proposal: dict, flags: dict | None, timeout_min: int) -> list[str]
     head = [f"### Proposed action {proposal['id']}: `{spec['id']}` (for {proposal['hypothesis']})", "",
             f"{spec.get('description', '')}", "",
             f"- **Lane:** runtime: an AppConfig deployment to `{ac['profile']}`, no code deploy, no Terraform. "
-            "The deployment bakes for 1 minute and the dependency-errors alarm rolls it back."]
+            "Live in under a minute; if it makes things worse, the alarm fires again and the loop "
+            "proposes undoing it (no automatic rollback: ADR 0017)."]
     if ac.get("rollback"):
         n = proposal.get("params", {}).get("deployment")
         body = [f"- **Exact change:** redeploy the `{ac['profile']}` version that was live before deployment #{n}. "

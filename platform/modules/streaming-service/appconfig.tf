@@ -1,52 +1,21 @@
 # Lane 1, runtime change (ADR 0004): flags and chaos live in AppConfig, validated by a
-# JSON schema, deployed with the env's strategy (1-minute bake), and rolled back
-# automatically if this customer's dependency-errors alarm fires during the bake.
-# catalog-api polls every 15 s, so a change is live in under a minute, no deploy.
+# JSON schema, deployed with the env's strategy (immediate, 1-minute bake). catalog-api
+# polls every 15 s, so a change is live in under a minute, no deploy.
+#
+# No AppConfig rollback monitor (ADR 0017). It was the dependency-errors alarm: during an
+# incident that fires it, AppConfig rolled back every fix in 5 s (issue #17), and with a
+# 2-of-3-minute alarm and a 1-minute bake it never caught a bad change. A bad config
+# fires the alarm, and the incident loop proposes rolling that deployment back.
 
 resource "aws_appconfig_application" "this" {
   name        = local.name
   description = "Runtime configuration for ${local.customer} ${local.env}"
 }
 
-data "aws_iam_policy_document" "appconfig_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["appconfig.amazonaws.com"]
-    }
-  }
-}
-
-resource "aws_iam_role" "appconfig_monitor" {
-  name                 = "${local.name}-appconfig-monitor"
-  description          = "Lets AppConfig read the rollback alarm for ${local.name}."
-  assume_role_policy   = data.aws_iam_policy_document.appconfig_assume.json
-  permissions_boundary = local.boundary
-}
-
-data "aws_iam_policy_document" "appconfig_monitor" {
-  statement {
-    actions   = ["cloudwatch:DescribeAlarms"]
-    resources = [aws_cloudwatch_metric_alarm.dependency_errors.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "appconfig_monitor" {
-  name   = "${local.name}-appconfig-monitor"
-  role   = aws_iam_role.appconfig_monitor.id
-  policy = data.aws_iam_policy_document.appconfig_monitor.json
-}
-
 resource "aws_appconfig_environment" "this" {
   name           = local.env
   description    = "${local.customer} ${local.env}"
   application_id = aws_appconfig_application.this.id
-
-  monitor {
-    alarm_arn      = aws_cloudwatch_metric_alarm.dependency_errors.arn
-    alarm_role_arn = aws_iam_role.appconfig_monitor.arn
-  }
 }
 
 resource "aws_appconfig_configuration_profile" "flags" {

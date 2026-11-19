@@ -43,7 +43,8 @@ six-month goals there, so each tier is also a plan for those goals.
    alias weights itself (10% for 5 minutes, rolled back on the API's 5xx or latency
    alarm); the readiness gate requires a canary config. CI deploys after the owner
    applies the bootstrap change; until then `./sr deploy catalog-api` runs the same
-   canary. Not built yet: the container image (after the round, owner 19/11/2026).
+   canary. S2 drilled on dev 19/11/2026: rolled back after 154 s (docs/demo/canary.md).
+   Not built yet: the container image (after the round, owner 19/11/2026).
 
 ## Tier 3: the full design, ranked (not started; the owner picks after the round)
 
@@ -63,7 +64,9 @@ tests, docs and a recorded run.
 | 9 | the other four **review specialists** | P6-P8 | 1 day | same router/verifier |
 | 10 | an **eval set** of past incidents (#1, #2, #6, #15, S3, S4) before trusting the model's ranking | P2 | half a day | |
 | 11 | Slack approvals, pager integration, on-call rota file | P2 | 1 day | |
-| 12 | custom domain (after CloudFront is verified for the account), S6, New Relic export | - | half a day each | |
+| 12 | **Task token out of GitHub** (ADR 0005): the token goes to the audit table and the App's comment carries only a reference; the approver role reads it with `GetItem` on `TOKEN#` keys | P3 | half a day | needs a bootstrap apply and an incident deploy; old issues keep working |
+| 13 | **Config regression monitors** that don't block fixes (per-config metrics, a longer bake), after ADR 0017 removed the old monitor | P5 | 1 day | |
+| 14 | custom domain (after CloudFront is verified for the account), S6, New Relic export | - | half a day each | |
 
 Tier 2 remainder, also after the round: the **container image** (arm64, ECR by digest,
 provenance; 1 day).

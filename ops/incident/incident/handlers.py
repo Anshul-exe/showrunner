@@ -13,6 +13,7 @@ triage, verification, proposal, approval, act, check}.
 from __future__ import annotations
 
 import functools
+import json
 import os
 import time
 from datetime import datetime, timedelta, timezone
@@ -115,6 +116,12 @@ def github(event: dict, _ctx=None) -> dict:
         return state
     if step == "escalate":
         reason, label = event["reason"], "escalated"
+        if err := state.get("error"):  # the Catch on Act: say why, e.g. AppConfig rolled it back (#17)
+            try:
+                cause = json.loads(err.get("Cause") or "{}").get("errorMessage", "")
+            except (TypeError, ValueError):
+                cause = str(err.get("Cause", ""))
+            reason += f" {err.get('Error', 'Error')}: {cause[:500]}" if cause else ""
         check = state.get("check") or {}
         if check.get("status") == "no-traffic":  # not a failed recovery: nothing to measure (#15)
             since = check.get("no_traffic_since")

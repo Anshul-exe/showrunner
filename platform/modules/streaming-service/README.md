@@ -10,7 +10,8 @@ What it creates:
 - `catalog-api` (lambda-function module) in the env's private subnets
 - an HTTP API (throttled: burst 20, rate 10/s) with access logs (no client IPs)
 - an AppConfig application with `flags` and `chaos` profiles, both JSON-schema
-  validated, and an environment whose monitor is the dependency-errors alarm
+  validated, and an environment with no rollback monitor (ADR 0017: the incident loop
+  is the rollback path for a bad config)
 - three alarms, each linked to its runbook in `ops/runbooks/`:
   `vendor-latency` (p95 > 1 s), `dependency-errors` (> 5 in 3 min), `api-latency`
   (API Gateway p95 > 1 s); all to the env's SNS topic

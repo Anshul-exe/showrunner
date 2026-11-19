@@ -61,7 +61,50 @@ too late: 4 answers from the old code, then 56 of 56 from v6 after promotion (re
 carry `x-sr-version`). There was no viewer traffic on dev at the time, so the alarms
 had nothing to judge; this run shows the mechanics, not a rollback.
 
-## Not run yet
+## S2: a bad release, rolled back by the canary (dev, 19/11/2026)
 
-**S2**, the rollback: a build that fails a share of searches, under traffic, rolled back
-by `canary-errors`. Tested against a fake AWS (`tests/test_lambda_deploy.py`), not on dev.
+Scenario S2 from the design: a build that **fails 20% of searches**, deployed through
+the normal canary on acme-tv under traffic. The drill
+([`tools/deploy/s2_drill.py`](../../tools/deploy/s2_drill.py)) builds catalog-api from
+main (the same SHA-256 as live v6: `3sDaJk7L...PdPE=`, so the build is reproducible),
+then a temp copy whose `/search` raises on 20% of requests (`7IRB4G20...gmB7Q=`). The
+fault exists only in that temp zip. A probe sent 5 requests/s to `/search` **from 90 s
+before the canary** and read `x-sr-version` on every response, so the split was measured
+this time. Raw record: [s2/s2-20261119T1355.json](s2/s2-20261119T1355.json).
+
+| UTC | Event |
+|---|---|
+| 13:55:23 | probe starts: 5 rps, `/search` on acme-tv |
+| 13:56:53 | canary starts: `v6 -> v7: 10% for 5 min, watching sr-acme-tv-dev-canary-errors, sr-acme-tv-dev-api-latency` |
+| 13:57:03 | v7 (the bad build) published by digest; alias `live` = v6 + 10% v7 |
+| 13:59:25 | `sr-acme-tv-dev-canary-errors` -> ALARM (API 5xx >= 1/min in 2 of 3 minutes: 7 and 8) |
+| ~13:59:27 | **rolled back after 154 s**: `live` 100% v6 (the tool reads the alarms every 10 s) |
+| 13:59:37 | v6's code re-published as **v8** (same digest), so the newest version is good code again |
+| 14:02:25 | `canary-errors` -> OK |
+| 14:02:40 | probe ends |
+
+What the viewers saw, per minute (probe, client side):
+
+| Minute | v6 (old) | v7 (bad) | v7's share |
+|---|---|---|---|
+| 13:56 | 300 requests, 0 errors | - | 0% |
+| 13:57 | 265, 0 errors | 34, **7 errors** | 11.4% |
+| 13:58 | 270, 0 errors | 30, **8 errors** | 10.0% |
+| 13:59 | 283, 0 errors | 16, **3 errors** (until the rollback) | 5.4% |
+| 14:00-14:02 | 807, 0 errors | - | 0% |
+
+- **The split was measured:** 80 of 898 requests (8.9%) went to v7 during the canary,
+  10-11% in the full minutes, against a configured 10%.
+- **The blast radius:** 18 failed searches, all on v7 (22.5% of its 80, against 20%
+  designed), i.e. **2% of all searches for 2.5 minutes**. Without the canary the same build
+  would have failed 20% of every search until someone noticed.
+- **v6 served 2,101 requests with 0 errors** before, during and after.
+- **No incident, no page:** `canary-errors` is `incident: false` (its consumer is the
+  deploy tool); no issue was opened and no other alarm changed state.
+- **Terraform afterwards:** `customers/acme-tv/dev` plans `function_version = "6" -> "8"`
+  (one in-place change). That is the restore working: v8 is v6's code. Without it the
+  next apply would have moved `live` to **v7, the rejected build**. The next apply moves
+  the alias to the same code.
+
+Not covered by this run: the latency rollback alarm (a slow build), and a runner killed
+mid-canary (tested against a fake AWS only: the tool's exception path rolls back).
