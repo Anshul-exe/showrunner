@@ -56,3 +56,8 @@ counting only minutes with at least 5 vendor calls (the same floor as api-latenc
 
 When the vendor is healthy again (its p95 from step 4 is back to tens of ms), roll
 back: `vendor_fallback: false`. Watch vendor p95 for 10 minutes.
+
+An alarm that goes OK is not proof: with the fallback on, the vendor gets few calls,
+and with no traffic at all every latency alarm goes OK on missing data. Confirm on the
+API's p95 **and** its request count for the same minutes (see
+[api-latency](api-latency.md), "OK is not recovered").

@@ -43,14 +43,30 @@ six-month goals there, so each tier is also a plan for those goals.
    alias weights itself (10% for 5 minutes, rolled back on the API's 5xx or latency
    alarm); the readiness gate requires a canary config. CI deploys after the owner
    applies the bootstrap change; until then `./sr deploy catalog-api` runs the same
-   canary. Not built yet: the container image, the S2 drill.
+   canary. Not built yet: the container image (after the round, owner 19/11/2026).
 
-## Tier 3: the full design
+## Tier 3: the full design, ranked (not started; the owner picks after the round)
 
-prod env; synthetic SLO + burn-rate alarms; event readiness + k6 breaking-point test
-(P10); cost report + park/unpark + handover (P13, P15); MCP server with read-only ops
-tools (P4); scenarios S5 (NAT instance loss) and S6; custom domain; Slack approvals;
-New Relic export.
+Estimates are for one person who knows this repo; "half a day" is ~4 hours including
+tests, docs and a recorded run.
+
+| # | Item | Problem | Estimate | Notes |
+|---|---|---|---|---|
+| 1 | **SLO burn-rate alarms**: an availability and a latency SLO per customer from API Gateway metrics (metric math, no new service), multi-window burn rate (1 h/5 min fast, 6 h/30 min slow) | P13 | half a day | also a traffic floor, so "OK on missing data" can't pass as healthy (issue #15) |
+| 2 | **Cost report by customer**: Cost Explorer grouped by the `customer` tag, monthly per env, in the repo and on the issue tracker | P13, P15 | half a day | needs the tag activated as a cost-allocation tag (owner, console, ~24 h to show) |
+| 3 | **Review verifier reads the plan JSON** instead of HCL text (ADR 0013 known limitation) | P6, P8 | half a day | `terraform show -json` from the plan job; references become values |
+| 4 | **prod env** behind the required reviewer, promotion of the same attested zip | P7, P12 | 1 day | the `prod` environment already gates ops-core; a second NAT instance and cache: price it in COST.md first |
+| 5 | **k6 breaking-point test** + event-readiness checklist (P10) | P10 | 1 day | capped (quota 400, 20 rps cap today); dev only |
+| 6 | **park/unpark + handover note** | P15 | half a day | park = NAT ASG to 0 + cache left (minimum billed anyway) |
+| 7 | **Scenario S5** (NAT instance loss) as a drill and a case file | P17 | half a day | the ASG and route self-heal exist; needs the evidence and the record |
+| 8 | **MCP server** with read-only ops tools (status, evidence, audit rows) | P4 | 1 day | the same IAM-matches-instructions test |
+| 9 | the other four **review specialists** | P6-P8 | 1 day | same router/verifier |
+| 10 | an **eval set** of past incidents (#1, #2, #6, #15, S3, S4) before trusting the model's ranking | P2 | half a day | |
+| 11 | Slack approvals, pager integration, on-call rota file | P2 | 1 day | |
+| 12 | custom domain (after CloudFront is verified for the account), S6, New Relic export | - | half a day each | |
+
+Tier 2 remainder, also after the round: the **container image** (arm64, ECR by digest,
+provenance; 1 day).
 
 ## How this maps to the six-month goals
 

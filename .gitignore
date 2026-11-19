@@ -22,6 +22,9 @@ crash.log
 # Local tool binaries
 .tools/
 
+# sr runtime state (the running demo traffic's end time)
+.sr-state/
+
 # Python
 __pycache__/
 *.pyc

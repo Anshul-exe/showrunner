@@ -1,5 +1,51 @@
 # Incident loop, recorded runs (fallback for the live demo)
 
+## 19/11/2026: S1 with the new analysis (G3), issue #15: the escalation path
+
+Scenario S1 on **dev** again, with the loop's code from main (case files and G3, ADR
+0015). Started after a checked 15-minute quiet window (no apply, deploy or flags change).
+Record: issue [#15](https://github.com/Anshul-exe/showrunner/issues/15) and the audit
+table (`pk = acme-tv-dev-20261119T1250`). **#6 stays the demo fallback**: this run is the
+record of what happens when the fix can't be measured.
+
+| UTC | +s from alarm | Event |
+|---|---|---|
+| ~12:41 | | demo traffic starts (25 min) on acme-tv and nordic-sports |
+| 12:50:31 | 0 | `sr-acme-tv-dev-api-latency` -> ALARM (1,725 and 1,619 ms) |
+| 12:50:35 | +4 | issue #15 opened; `vendor-latency` joins at 12:50:38 |
+| 12:50:49 | +18 | analysis + proposal A1 `vendor-fallback-on` posted |
+| 13:06 | | the last demo request to acme-tv: **the traffic ran out** |
+| 13:07:29 | +1,018 | `/approve A1` |
+| 13:08:32 | +1,081 | fallback live (AppConfig `flags` #18, 6.4 s) |
+| 13:14 | | alarms back to OK, only because missing data counts as "not breaching" |
+| 13:18:41 | +1,690 | **escalation**: "the API p95 did not recover within 10 minutes" (there were no requests to measure) |
+| 13:24-13:31 | | recovery **measured by hand**: 5 min of traffic to acme-tv (3 rps, 900 requests, 0 errors) with chaos and the fallback on: API p95 **28-41 ms** per minute (CloudWatch, server side) vs 1,610-1,725 ms during the incident; 0 vendor calls (cached recommendations) |
+| 13:33 | | `./sr demo s1 stop` (chaos off, flags at defaults, #19/#20; undo row 13:34) |
+| 13:48 | | resolution row (`resolve`, by the owner) written; #15 closed with the timeline |
+
+**What G3 changed, and it worked:**
+- **Real baseline, with counts:** vendor-recs 1,606 ms in the last 3 min (79 calls) vs
+  112 ms, the median of 6 min before the alarm; API 1,618 ms (210 requests) vs 127 ms.
+  H1 `vendor-recs` **CONFIRMED** by checks (points there; same order as the API's p95).
+- **The change hypothesis is always checked:** the model offered H2 `config-change`; the
+  check found no config change or deploy in effect in the 15 min before the alarm and
+  **REFUTED** it. Before G3 this kind of hypothesis had no check (issue #7).
+- **Wrong suspects ruled out with numbers:** valkey 2.2 ms (0.1% of the API's p95; the
+  cache answers in 1.3 ms server side), DynamoDB 7.5 ms (0.5%).
+- **2 model calls**: triage 1,540 + 157 tokens, verifier 1,602 + 191 tokens, $0.00027 in
+  all. Evidence collection 7.7 s (14 items, incl. network and DNS).
+
+**What it taught:** the recovery check looked only at p95. With no requests there was no
+p95, and "no data" was read as "not recovered". Missing data is neither a recovery nor
+a failure. Fixed (19/11/2026): the check reads the API's request count too and, with no
+traffic, says "can't verify: no traffic since HH:MM" (label `unverified`); `sr demo s1
+start` warns when the demo traffic ends within 20 minutes; the demo uses 40-minute
+traffic. The same trap exists in production: a latency alarm with `notBreaching` goes
+OK when traffic stops (see [the runbook](../../ops/runbooks/api-latency.md)).
+
+Some minutes of the 13:24-13:31 check show up to 360 requests against 180 sent; no other
+client of the operator's was running then. Not explained.
+
 ## 18/11/2026: the whole loop, issue #6 (the fallback for the demo)
 
 Scenario S1 on **dev** (acme-tv's vendor +1,500 ms), traffic from 09:58 to 10:18 UTC at

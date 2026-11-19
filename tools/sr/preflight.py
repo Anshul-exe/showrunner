@@ -60,9 +60,16 @@ def eval_runtime_config(customer: str, flags: dict, chaos: dict) -> Result:
     return Result(PASS, f"config {customer}", "flags and chaos at defaults")
 
 
+# The $1 budget that proved alert email delivery (bootstrap `enable_smoke_budget`) is
+# meant to be exceeded; it isn't a spending signal (switched off 19/11/2026).
+IGNORED_BUDGETS = {"showrunner-smoke-test"}
+
+
 def eval_budgets(budgets: list[dict]) -> list[Result]:
     out = []
     for b in budgets:
+        if b["BudgetName"] in IGNORED_BUDGETS:
+            continue
         limit = float(b["BudgetLimit"]["Amount"])
         spent = float(b.get("CalculatedSpend", {}).get("ActualSpend", {}).get("Amount", 0))
         forecast = float(b.get("CalculatedSpend", {}).get("ForecastedSpend", {}).get("Amount", 0) or 0)
@@ -88,6 +95,18 @@ def eval_nat(instances: list[dict], routes: list[dict]) -> Result:
         target = default.get("InstanceId") if default else "missing"
         return Result(FAIL, "nat", f"private default route -> {target}, healthy NAT is {healthy[0]} (blackhole?)")
     return Result(PASS, "nat", f"{healthy[0]} InService, private 0.0.0.0/0 -> it")
+
+
+NAT_AMI_PARAM = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
+
+
+def eval_nat_ami(running: str | None, latest: str) -> Result:
+    """The NAT AMI is pinned (ADR 0003): say when AWS has published a newer one, so it's
+    patched on purpose in a PR, never by surprise in a demo-day apply."""
+    if running == latest:
+        return Result(PASS, "nat ami", f"{running} (pinned; the latest AL2023 arm64)")
+    return Result(WARN, "nat ami", f"pinned {running}; AWS published {latest}. Patch in a PR "
+                  "(platform/shared/variables.tf nat_ami_id), not on a demo day: it replaces the NAT (~2-3 min)")
 
 
 # ------------------------------------------------------------------ live checks
@@ -127,8 +146,15 @@ def check_nat(env: str) -> list[Result]:
     shared = common.shared_params(env)
     asg = common.client("autoscaling").describe_auto_scaling_groups(AutoScalingGroupNames=[shared["nat_asg_name"]])
     instances = asg["AutoScalingGroups"][0]["Instances"] if asg["AutoScalingGroups"] else []
-    rt = common.client("ec2").describe_route_tables(RouteTableIds=[shared["private_route_table_id"]])
-    return [eval_nat(instances, rt["RouteTables"][0]["Routes"])]
+    ec2 = common.client("ec2")
+    rt = ec2.describe_route_tables(RouteTableIds=[shared["private_route_table_id"]])
+    out = [eval_nat(instances, rt["RouteTables"][0]["Routes"])]
+    if instances:
+        res = ec2.describe_instances(InstanceIds=[i["InstanceId"] for i in instances])["Reservations"]
+        running = next((i["ImageId"] for r in res for i in r["Instances"]), None)
+        latest = common.client("ssm").get_parameter(Name=NAT_AMI_PARAM)["Parameter"]["Value"]
+        out.append(eval_nat_ami(running, latest))
+    return out
 
 
 def eval_network(drift: dict) -> Result:

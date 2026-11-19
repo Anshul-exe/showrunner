@@ -7,6 +7,8 @@ vendor-mock instance per recommendation request, so the rate stays low and cappe
 
 from __future__ import annotations
 
+import json
+import os
 import random
 import signal
 import statistics
@@ -15,8 +17,9 @@ import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-from common import client, customer_params
+from common import ROOT, client, customer_params
 
 MIX = [  # (weight, path template)
     (35, "/catalog"),
@@ -55,6 +58,37 @@ def stop_message(reason: str, started: float, sent: int, totals: dict[str, int])
     mins = (time.time() - started) / 60
     parts = ", ".join(f"{k}={v}" for k, v in totals.items() if v)
     return f"traffic stopped: {reason} after {mins:.1f} min; {sent} requests sent ({parts or 'no responses'})"
+
+
+# While `sr demo traffic` runs, it says until when (so `sr demo s1 start` can warn that the
+# traffic will end before the loop can check the recovery: issue #15, 19/11/2026).
+STATE = ROOT / ".sr-state" / "traffic.json"
+
+
+def write_state(customers: list[str], ends_at: float, path: Path | None = None) -> None:
+    path = path or STATE
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps({"pid": os.getpid(), "customers": customers, "ends_at": ends_at}))
+
+
+def clear_state(path: Path | None = None) -> None:
+    path = path or STATE
+    try:
+        if json.loads(path.read_text()).get("pid") == os.getpid():
+            path.unlink()
+    except (OSError, ValueError):
+        pass
+
+
+def running(path: Path | None = None, now: float | None = None) -> dict | None:
+    """The traffic run still going (its process alive and its end in the future), or None."""
+    path = path or STATE
+    try:
+        st = json.loads(path.read_text())
+        os.kill(int(st["pid"]), 0)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return st if st["ends_at"] > (now or time.time()) else None
 
 
 def run(customers: list[str], env: str, minutes: float, rps: float) -> str:
@@ -100,6 +134,7 @@ def run(customers: list[str], env: str, minutes: float, rps: float) -> str:
     next_report = started + 15
     sent = 0
     print(f"traffic: {rps} rps across {', '.join(customers)} for {minutes} min (Ctrl-C to stop)", flush=True)
+    write_state(customers, end)
     pool = ThreadPoolExecutor(max_workers=16)
     try:
         while stop["reason"] is None:
@@ -130,6 +165,7 @@ def run(customers: list[str], env: str, minutes: float, rps: float) -> str:
         stop["reason"] = f"error {type(exc).__name__}: {exc}"
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+        clear_state()
         msg = stop_message(stop["reason"] or "unknown", started, sent, totals)
         try:
             print(msg, flush=True)

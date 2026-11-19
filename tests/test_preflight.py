@@ -46,6 +46,21 @@ def test_quota_and_nat():
     assert preflight.eval_nat(inst, []).status == FAIL
 
 
+def test_nat_ami_pin_warns_when_aws_publishes_a_newer_one():
+    assert preflight.eval_nat_ami("ami-0a", "ami-0a").status == PASS
+    r = preflight.eval_nat_ami("ami-0a", "ami-0b")
+    assert r.status == WARN and "not on a demo day" in r.detail
+
+
+def test_the_smoke_test_budget_is_not_a_spending_signal():
+    smoke = {"BudgetName": "showrunner-smoke-test", "BudgetLimit": {"Amount": "1"},
+             "CalculatedSpend": {"ActualSpend": {"Amount": "1.11"}}}
+    real = {"BudgetName": "showrunner-monthly", "BudgetLimit": {"Amount": "60"},
+            "CalculatedSpend": {"ActualSpend": {"Amount": "1.11"}}}
+    got = preflight.eval_budgets([smoke, real])
+    assert [r.name for r in got] == ["budget showrunner-monthly"] and got[0].status == PASS
+
+
 def test_a_crashing_check_is_a_fail_not_a_crash(monkeypatch, capsys):
     def boom(env):
         raise RuntimeError("nope")

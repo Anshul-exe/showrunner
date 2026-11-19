@@ -23,6 +23,16 @@ variable "azs" {
   }
 }
 
+variable "nat_ami_id" {
+  description = "NAT instance AMI (AL2023 arm64), pinned: a new AMI replaces the instance (~2-3 min without egress), so it changes only in a PR, on purpose (ADR 0003)."
+  type        = string
+
+  validation {
+    condition     = can(regex("^ami-[0-9a-f]{8,17}$", var.nat_ami_id))
+    error_message = "nat_ami_id must be an AMI ID (ami-...)."
+  }
+}
+
 variable "nat_instance_type" {
   description = "NAT instance type. The CI boundary and conftest allow only t4g.micro."
   type        = string

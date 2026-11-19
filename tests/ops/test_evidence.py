@@ -100,13 +100,47 @@ def test_a_failing_source_is_recorded_not_fatal():
     assert items[-1]["kind"] == "collection_error" and "RuntimeError" in items[-1]["summary"]
 
 
-def test_recovery_needs_two_good_minutes():
-    class Now(CW):
-        def __init__(self, vals):
-            self.vals = vals
+class RecoveryCW:
+    """API p95 and request counts per minute, oldest first, ending at END."""
 
-        def get_metric_data(self, MetricDataQueries, **kw):
-            return {"MetricDataResults": [{"Id": "api", "Values": self.vals}]}
-    assert evidence.recovery(Now([1600, 120, 110]), PARAMS["api_url"], 1000, END)["recovered"]
-    assert not evidence.recovery(Now([1600, 110, 1500]), PARAMS["api_url"], 1000, END)["recovered"]
-    assert not evidence.recovery(Now([110]), PARAMS["api_url"], 1000, END)["recovered"]
+    def __init__(self, p95s, counts, gap_until=None):
+        self.p95s, self.counts = p95s, counts
+
+    def get_metric_data(self, MetricDataQueries, **kw):
+        n = len(self.counts)
+        ts = [END - timedelta(minutes=n - i) for i in range(n)]
+        p = [(t, v) for t, v in zip(ts, self.p95s) if v is not None]
+        c = [(t, v) for t, v in zip(ts, self.counts) if v]
+        return {"MetricDataResults": [
+            {"Id": "api", "Timestamps": [t for t, _ in p], "Values": [v for _, v in p]},
+            {"Id": "n", "Timestamps": [t for t, _ in c], "Values": [v for _, v in c]}]}
+
+
+def test_recovery_needs_two_good_minutes_with_traffic():
+    rec = lambda p, c: evidence.recovery(RecoveryCW(p, c), PARAMS["api_url"], 1000, END)  # noqa: E731
+    r = rec([1600, 120, 110], [180, 180, 180])
+    assert (r["recovered"], r["status"], r["api_p95_ms"], r["requests"]) == (True, "recovered", [120, 110], 540)
+    assert rec([1600, 110, 1500], [180, 180, 180])["status"] == "not-recovered"
+    assert rec([110], [180])["status"] == "waiting"  # one minute isn't a trend
+
+
+def test_no_traffic_is_not_a_failed_recovery():
+    """Issue #15 (19/11/2026): the demo traffic ended a minute before the fix went live;
+    the loop said the p95 hadn't recovered. With no requests there's nothing to judge."""
+    # traffic until 8 minutes before the check, then nothing
+    p95s = [1650] * 52 + [None] * 8
+    counts = [180] * 52 + [0] * 8
+    r = evidence.recovery(RecoveryCW(p95s, counts), PARAMS["api_url"], 1000, END)
+    assert (r["recovered"], r["status"], r["requests"]) == (False, "no-traffic", 0)
+    assert r["no_traffic_since"] == (END - timedelta(minutes=9)).strftime("%H:%M")
+
+
+def test_a_few_stray_requests_are_not_traffic():
+    """One minute's p95 over two requests (a health check) can't confirm or refute."""
+    r = evidence.recovery(RecoveryCW([None, None, None, None, 90], [0, 0, 0, 0, 2]), PARAMS["api_url"], 1000, END)
+    assert r["status"] == "no-traffic" and not r["recovered"]
+
+
+def test_slow_minutes_with_few_requests_are_ignored():
+    r = evidence.recovery(RecoveryCW([120, 3000, 110], [180, 2, 180]), PARAMS["api_url"], 1000, END)
+    assert r["status"] == "recovered" and r["api_p95_ms"] == [120, 110]

@@ -411,11 +411,42 @@ def collect(clients: Clients, alarm: dict, params: dict[str, str], shared: dict[
     return col.items
 
 
+RECOVERY_MIN_REQUESTS = 5  # a minute's p95 counts only with this many requests (as the alarms)
+RECOVERY_WINDOW_MIN = 5  # look at the last 5 minutes...
+NO_TRAFFIC_LOOKBACK_MIN = 60  # ...and up to an hour back to say since when there's been none
+
+
 def recovery(cw, api_url: str, threshold_ms: float, end: datetime | None = None) -> dict[str, Any]:
-    """Post-change check on what users see: the last 2 one-minute API p95 values."""
+    """Post-change check on what users see: the API p95 of the last 2 minutes that had
+    traffic. Three outcomes, never two: `recovered`, `not-recovered`, or `no-traffic`
+    (a missing data point is neither a recovery nor a failure; issue #15, 19/11/2026),
+    plus `waiting` while there's traffic but fewer than 2 minutes of it."""
     end = end or datetime.now(timezone.utc)
-    q = [_stat("AWS/ApiGateway", "Latency", {"ApiId": api_id(api_url), "Stage": "$default"}, "p95", "api")]
-    values = _metric_series(cw, q, end, minutes=5).get("api", [])
-    last = [round(v, 1) for v in values[-2:]]
-    return {"recovered": len(last) == 2 and all(v < threshold_ms for v in last),
-            "api_p95_ms": last, "threshold_ms": threshold_ms, "at": end.strftime("%H:%M:%S")}
+    dims = {"ApiId": api_id(api_url), "Stage": "$default"}
+    q = [_stat("AWS/ApiGateway", "Latency", dims, "p95", "api"),
+         _stat("AWS/ApiGateway", "Count", dims, "Sum", "n")]
+    data = _metric_data(cw, q, end, minutes=NO_TRAFFIC_LOOKBACK_MIN)
+    (p_ts, p95s), (n_ts, counts) = data.get("api", ([], [])), data.get("n", ([], []))
+    if p_ts and n_ts:  # align by minute (minutes with no requests have no datapoints)
+        by_min = dict(zip(n_ts, counts))
+        minutes = [(t, p, by_min.get(t, 0.0)) for t, p in zip(p_ts, p95s)]
+        minutes += [(t, None, c) for t, c in zip(n_ts, counts) if t not in set(p_ts)]
+        minutes.sort(key=lambda m: m[0])
+    else:  # fakes without timestamps: both series end at `end`
+        k = min(len(p95s), len(counts))
+        minutes = [(None, p, c) for p, c in zip(p95s[len(p95s) - k:], counts[len(counts) - k:])]
+    recent_from = end - timedelta(minutes=RECOVERY_WINDOW_MIN)
+    recent = [m for m in minutes if m[0] is None or m[0] >= recent_from][-RECOVERY_WINDOW_MIN:]
+    busy = [m for m in recent if m[1] is not None and m[2] >= RECOVERY_MIN_REQUESTS]
+    last = [round(m[1], 1) for m in busy[-2:]]
+    requests = int(sum(m[2] for m in recent))
+    out = {"api_p95_ms": last, "requests": requests, "threshold_ms": threshold_ms,
+           "at": end.strftime("%H:%M:%S"), "no_traffic_since": None}
+    if len(busy) >= 2:
+        ok = all(v < threshold_ms for v in last)
+        return {**out, "recovered": ok, "status": "recovered" if ok else "not-recovered"}
+    if requests < RECOVERY_MIN_REQUESTS:
+        seen = [m[0] for m in minutes if m[0] is not None and m[2] > 0]
+        out["no_traffic_since"] = max(seen).strftime("%H:%M") if seen else None
+        return {**out, "recovered": False, "status": "no-traffic"}
+    return {**out, "recovered": False, "status": "waiting"}

@@ -129,3 +129,35 @@ def test_s3_restores_the_rule_exactly_as_terraform_declares_it():
     assert f'"{scenarios.S3_DESCRIPTION}"' in ingress
     assert re.search(r"from_port\s*=\s*6379", ingress) and re.search(r"to_port\s*=\s*6380", ingress)
     assert scenarios.S3_PORTS == (6379, 6380)
+
+
+# ---------------------------------------------------------------- S1 needs traffic (#15)
+def test_s1_start_warns_when_the_traffic_ends_too_soon(tmp_path, monkeypatch):
+    import scenarios
+    import traffic as tr
+
+    state = tmp_path / "traffic.json"
+    monkeypatch.setattr(tr, "STATE", state)
+    now = 1_000_000.0
+    assert "no `sr demo traffic` running" in scenarios.traffic_warning("acme-tv", now)
+    tr.write_state(["acme-tv", "nordic-sports"], now + 12 * 60, state)
+    w = scenarios.traffic_warning("acme-tv", now)
+    assert "ends in 12 min" in w and "--minutes 40" in w
+    tr.write_state(["nordic-sports"], now + 40 * 60, state)
+    assert "doesn't include acme-tv" in scenarios.traffic_warning("acme-tv", now)
+    tr.write_state(["acme-tv"], now + 40 * 60, state)
+    assert scenarios.traffic_warning("acme-tv", now) is None
+
+
+def test_traffic_state_is_only_trusted_while_its_process_lives(tmp_path):
+    import traffic as tr
+
+    state = tmp_path / "traffic.json"
+    tr.write_state(["acme-tv"], 2e9, state)  # this process: alive
+    assert tr.running(state, now=1e9)["customers"] == ["acme-tv"]
+    assert tr.running(state, now=3e9) is None  # ended
+    state.write_text('{"pid": 999999999, "customers": ["acme-tv"], "ends_at": 2e9}')
+    assert tr.running(state, now=1e9) is None  # process gone
+    tr.write_state(["acme-tv"], 2e9, state)
+    tr.clear_state(state)
+    assert not state.exists()

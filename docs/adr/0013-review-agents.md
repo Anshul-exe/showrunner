@@ -106,6 +106,14 @@ the part worth getting right.
   `review/agents/review-gate.md`, so the policy-matches-instructions test covers it,
   conditions included (a negative control, `REVIEW#*` -> `*`, fails it).
 
+- **Known limitation (found 19/11/2026, PRs #11 and #13): the verifier reads HCL text.**
+  A policy whose `resources` is a bare reference (`aws_dynamodb_table.x.arn`,
+  `each.value.alarms`) parses as `resources []`, so the "is it `*`?" check passes it.
+  On those PRs the verdict was right, but for the wrong reason: the references were
+  scoped ARNs, which the check never saw. A real `*` written through a variable or a
+  local would be missed the same way. Decided: fix in tier 3 by reading the plan JSON
+  (`terraform show -json`), where references are resolved values (ROADMAP, tier 3).
+
 ## When we'd decide differently
 
 In production: run the review code from the default branch (a `workflow_run` on the PR's

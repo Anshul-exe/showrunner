@@ -11,13 +11,18 @@ today is in these runs (19/11/2026); what isn't built is in the roadmap segment.
 export AWS_PROFILE=showrunner AWS_REGION=us-east-1   # sr defaults to this profile anyway
 ./sr preflight                 # must say READY (WARN lines are fine: they say why)
 ./sr demo reset                # only if preflight says config is not at defaults
-./sr demo traffic --minutes 25 --rps 3 &    # warm-up: the incident baseline needs ~5 min of history
+./sr demo traffic --minutes 40 --rps 3 &    # warm-up: the incident baseline needs ~5 min of history
+                               # 40 min: it must outlast the alarm, your /approve and the
+                               # loop's 10-minute recovery check (issue #15: 25 min ran out)
                                # (its last line says why it stopped: time up, Ctrl-C, signal, error)
 ./sr demo watch                # second terminal: per-dependency p95 every 15 s
 ```
 
 S1 needs a quiet dev: start it only if nothing was applied or deployed to dev in the last
-15 minutes (otherwise the loop rightly names that change as a hypothesis).
+15 minutes (otherwise the loop rightly names that change as a hypothesis). It also needs
+viewers until the end: `./sr demo s1 start` warns if no traffic is running or it ends
+within 20 minutes. Restart the traffic then; with no requests the loop can only say
+"can't verify: no traffic" ([issue #15](https://github.com/Anshul-exe/showrunner/issues/15)).
 
 Open in one browser window: the README, the CloudWatch dashboard (`sr-dev-operations`),
 the repo's Issues filtered by `label:incident`, PR #5 (plan comments), PR #4 (supply
@@ -118,6 +123,9 @@ after the demo if the 3 extra alarms ($0.10 each per month) aren't wanted.
   0013): fix it, re-run failed jobs.
 - **"expected p95 (only N min of history)":** traffic started recently; the baseline is
   the documented normal latency instead of a median that might include the problem.
+- **"Can't verify recovery: no traffic since HH:MM":** the demo traffic ended before the
+  loop could measure the fix. Not a failure: start the traffic again and show the p95 in
+  `./sr demo watch` (issue #15 is this exact case, measured by hand: 28-41 ms).
 - **The vendor alarm stays red after the fix:** with the fallback on, the vendor metric
   mostly stops, so the alarm has little data to clear on. Recovery is checked on the
   API p95, which is what users see.
