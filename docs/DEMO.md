@@ -64,8 +64,10 @@ after the demo if the 3 extra alarms ($0.10 each per month) aren't wanted.
   deterministic rules, and the verifier's verdicts are numeric checks either way.
 - **The review comment differs from the recording:** the model may word findings
   differently or skip a look-alike; the verdicts come from the checks, so whatever it
-  reports gets the same verdict. "rules: checkov's failures" in the heading means the
-  model or the call counter was unavailable.
+  reports gets the same verdict. "**Not reviewed by the model: daily budget reached**"
+  means the 40-a-day cap was used (the rules result stands); "**Not reviewed by the
+  model:** <reason>" with a failed gate is an infrastructure error (fail closed, ADR
+  0013): fix it, re-run failed jobs.
 - **"expected p95 (only N min of history)":** traffic started recently; the baseline is
   the documented normal latency instead of a median that might include the problem.
 - **The vendor alarm stays red after the fix:** with the fallback on, the vendor metric

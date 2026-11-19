@@ -55,7 +55,7 @@ def reason_comment(comments: list[dict], actor: str, labeled_at: str) -> dict | 
 
 def decide(*, fork: bool, evidence_result: str, review_needed: bool, review_result: str,
            blocking: bool, labels: list[str], events: list[dict], comments: list[dict],
-           highs: list[dict], repo: str, pr: int, run_url: str) -> Decision:
+           highs: list[dict], repo: str, pr: int, run_url: str, degraded: str = "") -> Decision:
     if fork:
         return Decision(False, "not reviewed automatically: fork PR (fork PRs get no AWS token); "
                                "a maintainer reviews it by hand", comment=False)
@@ -67,6 +67,9 @@ def decide(*, fork: bool, evidence_result: str, review_needed: bool, review_resu
                         comment=evidence_result != "cancelled")
     if not review_needed:
         return Decision(True, "no Terraform changes: nothing for iac-security", comment=False)
+    if degraded:  # the model couldn't review it (not the daily budget): no label overrides this
+        return Decision(False, f"not reviewed by the model ({degraded}); an infrastructure error, not a finding: "
+                               "failing closed. Fix it, then re-run failed jobs")
     if review_result != "success":
         return Decision(False, f"not reviewed: the review job's result is '{review_result or 'none'}'; failing closed")
     if not blocking:

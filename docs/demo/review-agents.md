@@ -77,7 +77,7 @@ run locally on it, base = the `main` that will be pushed.
 |---|---|
 | route | `iac-security` (and `cost`, routed but not built) |
 | evidence | 1 hunk; checkov: 0 failures on the platform |
-| review, **without** the `sr-ops-agent-budget` table | counter not found -> no model call -> rules mode -> 0 findings -> the gate would **pass**. So the PR must be opened after the ops-core apply |
+| review, **without** the `sr-ops-agent-budget` table | counter not found -> no model call -> rules mode -> 0 findings -> the gate would **pass**. So the PR must be opened after the ops-core apply. Since 19/11/2026 this case fails closed instead ("Not reviewed by the model", ADR 0013) |
 | review, with the counter (stubbed locally) | 1 model call, 1,541 + 339 tokens, $0.00017; F1 `s3:*` **confirmed**, F2 heartbeat and F3 Deny **refuted**, all by checks; exit 1 (confirmed high) |
 | gate, no label | **fails**: "a confirmed high finding; to override, add the label `accept-risk`..." |
 | gate, label but no reason comment | **fails**: "... there's no reason: <who> must write it in a PR comment" |
@@ -111,8 +111,10 @@ private run book). Then, in the demo:
 Fallback: this page (the recorded run and the rehearsal above).
 
 If it differs: the model may word findings differently or skip one look-alike; the
-verdicts come from the checks. "rules: ... (model not used: ...)" in the comment means
-the model or the counter was unavailable: say so; the gate still enforces the rest.
+verdicts come from the checks. "**Not reviewed by the model: daily budget reached**" means
+the daily cap was used: the rules result stands, say so. "**Not reviewed by the model:**
+<reason>" with a failed gate is an infrastructure error (Bedrock, the counter,
+throttling): the gate fails closed; fix it and re-run failed jobs (ADR 0013).
 
 ## Real run on GitHub
 

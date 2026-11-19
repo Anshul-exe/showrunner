@@ -17,8 +17,9 @@ the part worth getting right.
 - **Specialist: `iac-security`** (Terraform under `platform/`). Its evidence is the PR's
   added/changed hunks with new-file line numbers, plus checkov's failures *on those
   lines only*. Each finding must cite evidence IDs and point at one changed line;
-  uncited ones are dropped in code. If the model is unavailable, checkov's failures
-  on changed lines become the findings (rules mode), so the check still means something.
+  uncited ones are dropped in code. If the model isn't used, checkov's failures on
+  changed lines become the findings (rules mode, severity medium); whether that result
+  *stands* depends on why (see "Rules mode stands only for the daily budget").
 - **Verifier: code first, model second.** For each finding it runs checks that can
   *refute* it: is the line changed by this PR; for an IAM wildcard, read the actual
   statement around the line: a Deny statement, no wildcard, or an action with no IAM
@@ -37,7 +38,8 @@ the part worth getting right.
   would have let a scanner crash, or any fork PR (whose evidence job is skipped), pass.
   Now `if: always()`, and in order: fork PR -> fail, "not reviewed automatically: fork
   PR"; evidence job not `success` -> fail; no Terraform -> pass; review job not
-  `success` -> fail; then the findings. A cancelled run (superseded by a newer push)
+  `success` -> fail (with the reason when it's an infrastructure error, below); then
+  the findings. A cancelled run (superseded by a newer push)
   still fails but doesn't overwrite the newer run's comment. Shown by a fixture run of
   the gate CLI with `--evidence-result failure` (`tests/review_agents/test_gate.py`)
   and a test that the workflow's gate is `if: always()` and needs both jobs.
@@ -51,8 +53,24 @@ the part worth getting right.
   Each job's harden-runner allow-list is only what that job calls.
 - **Caps:** at most 2 model calls per run (`AWS_MAX_ATTEMPTS=1`, so no silent retries),
   and 40 per day through a conditional increment on `sr-ops-agent-budget` (DynamoDB,
-  7-day TTL). If the counter can't be reached, no model call is made (fail closed:
-  rules mode).
+  7-day TTL). If the counter can't be reached, no model call is made.
+- **Rules mode stands only for the daily budget** (revised 19/11/2026). Every reason the
+  model isn't used has a kind (`AgentUnavailable.kind`):
+  - `budget`, the daily cap reached: a designed limit. The rules-mode result stands and
+    the comment opens with "**Not reviewed by the model: daily budget reached.**" Rule
+    findings are medium, so on their own they don't block; a human reads the diff.
+  - `infra` (counter table missing or denied, Bedrock error, throttling, credentials),
+    `output` (an answer that fails its schema, even through the forced tool call) and
+    `cap` (the per-run cap; only a code bug reaches it): **the PR wasn't reviewed, so
+    the gate fails closed.** `review run` exits 3; the review job posts its comment
+    ("**Not reviewed by the model:** <stage: reason>") and fails; the gate fails with the
+    reason. `accept-risk` doesn't override it: repair the cause, then "Re-run failed
+    jobs", which re-runs the review job itself (that's why the review job fails, not
+    only the gate). An admin can still bypass the ruleset.
+  - Why: the first version fell back to rules mode for all of these. Rehearsing the
+    demo PR on 18/11/2026 showed that with the counter table not yet created, the seeded
+    `s3:*` on `*` would have *passed* (no model call, and rule findings are medium): a
+    review that silently didn't happen looked like a clean one.
 - **Contract:** instruction files `review/agents/*.md` (JSON front matter: model, token
   cap, scope, `iam`, output schema). `tests/review_agents` fails CI if the bootstrap role
   grants anything beyond the agents' `iam` plus the counter, or uses another model.

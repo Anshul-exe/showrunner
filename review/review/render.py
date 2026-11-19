@@ -14,7 +14,7 @@ def _cell(s: str) -> str:
 
 
 def comment(routed: dict[str, list[str]], spec: dict[str, Any], ver: dict[str, Any], built: dict[str, bool],
-            accepted: bool = False) -> str:
+            accepted: bool = False, degraded: str = "", budget_reached: bool = False) -> str:
     findings = {f["id"]: f for f in spec["findings"]}
     verdicts = sorted(ver["verdicts"], key=lambda v: SEV.get(findings[v["finding"]]["severity"], 9))
     confirmed = [v for v in verdicts if v["verdict"] == "confirmed"]
@@ -27,8 +27,15 @@ def comment(routed: dict[str, list[str]], spec: dict[str, Any], ver: dict[str, A
     vu = ver["usage"]
     vwho = (f"checks, then model `{vu['model']}` for {sum(1 for v in verdicts if v['decided_by'] == 'model')} open finding(s)"
             if vu["mode"] == "model" else "checks only" + (f" (model not used: {vu['reason']})" if vu.get("reason") else ""))
-    out = [MARKER, "## Review agents", "",
-           f"**{len(confirmed)} confirmed**, {len(refuted)} refuted by the verifier, {len(open_)} for a human. "
+    out = [MARKER, "## Review agents", ""]
+    if degraded:
+        out += [f"**Not reviewed by the model: {_cell(degraded)}.** The deterministic checks below ran, but "
+                "without the model this PR wasn't reviewed, so the check fails closed.", ""]
+    elif budget_reached:
+        out += ["**Not reviewed by the model: daily budget reached.** The result below is the scanner's "
+                "rules and the verifier's checks only (a designed limit, not an error): a human should read "
+                "the diff.", ""]
+    out += [f"**{len(confirmed)} confirmed**, {len(refuted)} refuted by the verifier, {len(open_)} for a human. "
            f"Specialist `{spec['agent']}`: {who}; instructions sha256 `{spec['sha256'][:12]}`. Verifier: {vwho}.", ""]
     if confirmed:
         out += ["| Severity | Where | Finding | Evidence |", "|---|---|---|---|"]
@@ -51,7 +58,10 @@ def comment(routed: dict[str, list[str]], spec: dict[str, Any], ver: dict[str, A
             why = "; ".join(c["detail"] for c in v["checks"] if c["result"] == "fail") or v["explanation"]
             out.append(f"- ~~`{f['file']}:{f['line']}` {_cell(f['title'])} ({f['severity']})~~: {_cell(why)}")
         out += ["", "</details>", ""]
-    if high:
+    if degraded:
+        out.append("**Check result: failed** (not reviewed: an infrastructure error, not a finding). "
+                   "Fix it, then re-run failed jobs; `accept-risk` doesn't override this.")
+    elif high:
         out.append("**Check result: failed** (a confirmed high). " + (
             "Overridden: the `accept-risk` label is set; the reason belongs in a PR comment." if accepted else
             "To override, add the label `accept-risk` and write the reason in a comment."))

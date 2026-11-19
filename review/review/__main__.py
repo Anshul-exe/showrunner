@@ -6,7 +6,9 @@
     python -m review comment  < result.json                         -> Markdown
     python -m review gate     --fork false --evidence-result success ... --out DIR  -> DIR/decision.json, DIR/comment.md
     python -m review gate-record --dir DIR                       -> writes the accept-risk audit row
-    exit code of `run`: 1 if a confirmed high finding and no `accept-risk` label
+    exit code of `run`: 3 if the model couldn't review it for a reason other than the daily
+    budget (infrastructure: fail closed); else 1 if a confirmed high finding and no
+    `accept-risk` label
     `gate` always exits 0 (so the comment still gets posted); the workflow fails on decision.ok
 """
 
@@ -37,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     g = sub.add_parser("gate")
     for name in ("fork", "evidence-result", "review-needed", "review-result", "blocking", "repo", "pr", "run-url", "out"):
         g.add_argument(f"--{name}", required=name not in ("review-result", "blocking"), default="")
-    for name in ("labels", "events", "comments", "highs", "review-comment"):
+    for name in ("labels", "events", "comments", "highs", "review-comment", "degraded"):
         g.add_argument(f"--{name}", help="JSON (or Markdown for review-comment) file; missing = empty")
     gr = sub.add_parser("gate-record")
     gr.add_argument("--dir", required=True)
@@ -63,15 +65,18 @@ def main(argv: list[str] | None = None) -> int:
         high = [v for v in ver["verdicts"] if v["verdict"] == "confirmed" and findings[v["finding"]]["severity"] == "high"]
         confirmed_high = [findings[v["finding"]] for v in high]
         routed = json.loads(Path(a.routed).read_text()) if a.routed else {"iac-security": []}
+        degraded, budget_reached = core.not_reviewed(spec, ver)
         result = {"routed": routed, "specialist": spec, "confirmed_high": confirmed_high,
                   "verification": ver, "model_calls": budget.used, "accepted": "accept-risk" in labels,
-                  "blocking": bool(high) and "accept-risk" not in labels}
+                  "blocking": bool(high) and "accept-risk" not in labels,
+                  "degraded": degraded, "budget_reached": budget_reached}
         print(json.dumps(result, indent=1))
-        return 1 if result["blocking"] else 0
+        return 3 if degraded else 1 if result["blocking"] else 0
     if a.cmd == "comment":
         res = json.load(sys.stdin)
         built = {n: s["built"] for n, s in core.SPECIALISTS.items()}
-        print(render.comment(res["routed"], res["specialist"], res["verification"], built, res["accepted"]), end="")
+        print(render.comment(res["routed"], res["specialist"], res["verification"], built, res["accepted"],
+                             degraded=res.get("degraded", ""), budget_reached=res.get("budget_reached", False)), end="")
         return 0
     if a.cmd == "gate":
         return _gate(a)
@@ -97,14 +102,15 @@ def _read(path: str | None, default):
 def _gate(a) -> int:
     yes = lambda v: str(v).lower() == "true"  # noqa: E731
     labels = _read(a.labels, [])
-    d = gate.decide(
+    degraded = _read(a.degraded, "").strip()
+    d = gate.decide(degraded=degraded,
         fork=yes(a.fork), evidence_result=a.evidence_result, review_needed=yes(a.review_needed),
         review_result=a.review_result, blocking=yes(a.blocking),
         labels=[l["name"] if isinstance(l, dict) else l for l in labels],
         events=_read(a.events, []), comments=_read(a.comments, []), highs=_read(a.highs, []),
         repo=a.repo, pr=int(a.pr), run_url=a.run_url)
     review_comment = _read(a.review_comment, "")
-    if review_comment and yes(a.review_needed) and a.review_result == "success":
+    if review_comment and yes(a.review_needed) and (a.review_result == "success" or degraded):
         body = review_comment + gate.comment_suffix(d)
     else:
         body = (f"{render.MARKER}\n## Review agents\n\n**Not reviewed: {d.message}.**\n\n"
