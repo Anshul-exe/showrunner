@@ -230,3 +230,12 @@ def test_change_lane_recommendation_is_rendered_for_a_human():
                            ev[7]["data"]["flags"], recommendation=rec)
     assert "### No action proposed" in body and "Recommended (for a human, through the pipeline)" in body
     assert "gh workflow run apply.yml" in body and "/approve" not in body
+
+
+def test_a_dependency_failing_fast_is_not_refuted_by_its_latency_share():
+    """S3 with the cache breaker: valkey errors at ~1 ms. Errors, not latency, decide."""
+    ev = s3()
+    ev[2]["data"].update({"now": 1.5, "baseline": 5.0, "errors_5m": 8})
+    checks = analysis.check_dependency("valkey", ev)
+    assert [c["name"] for c in checks] == ["points-there", "errors"]
+    assert analysis.verdict_from(checks) == "confirmed"

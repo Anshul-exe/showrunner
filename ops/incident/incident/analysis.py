@@ -191,6 +191,14 @@ def check_dependency(dep: str, evidence: list[dict]) -> list[dict]:
         checks.append(_check("points-there", "pass" if e else "fail",
                              f"{dep} p95 now {d['now']} ms vs baseline {d['baseline']} ms, "
                              f"{d.get('errors_5m', 0):.0f} errors in 5 min", [item["id"]]))
+    errs = d.get("errors_5m", 0) or 0
+    if errs >= ERRORS_ELEVATED:
+        # Failing, not slow: a call that errors fast (a circuit breaker, a refused
+        # connection) can't be judged by its share of the API's latency. S3 drill,
+        # 18/11/2026: valkey had 8 errors at 1.5 ms and the scale check refuted it.
+        checks.append(_check("errors", "pass", f"{dep}: {errs:.0f} errors in 5 min: failing, whatever its latency",
+                             [item["id"]]))
+        return checks
     if api and api["data"].get("now") and d.get("now") is not None:
         api_now = api["data"]["now"]
         share = d["now"] / api_now if api_now else 0

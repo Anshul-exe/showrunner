@@ -282,12 +282,17 @@ data "aws_iam_policy_document" "evidence" {
       variable = "dynamodb:LeadingKeys"
       values   = ["reachability#*"]
     }
+    condition { # ForAllValues is vacuously true when the key is absent
+      test     = "Null"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["false"]
+    }
   }
 
   statement {
     sid       = "FlowAndResolverLogsQuery"
     actions   = ["logs:StartQuery"]
-    resources = flatten([for env in var.envs : ["${local.arn.logs}:log-group:/sr/sr-${env}/*", "${local.arn.logs}:log-group:/sr/sr-${env}/*:*"]])
+    resources = [for env in var.envs : "${local.arn.logs}:log-group:/sr/sr-${env}/*"] # `*` covers the `:*` form
   }
 
   statement {
