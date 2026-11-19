@@ -41,8 +41,12 @@ Give 1 to 3 hypotheses for the cause, most likely first. Fewer is better: one st
 hypothesis beats three where two are filler. Rules:
 - Every hypothesis names exactly one component from this list: vendor-recs (the external
   recommendations vendor), valkey (the cache), dynamodb, config-change (a recent runtime
-  config change or code deploy), lambda (the function itself: cold starts, concurrency),
-  network. One hypothesis per component.
+  config change, code deploy or Terraform apply), lambda (the function itself: cold
+  starts, concurrency), network. One hypothesis per component. A recent deploy is
+  config-change, not lambda. (Code adds a config-change hypothesis anyway whenever the
+  evidence shows a change in the 15 min before the alarm.)
+- A dependency measured on a handful of calls, or against an "expected p95" with no
+  history, is not evidence that it's slow: say so rather than blame it.
 - Cite only the evidence IDs that point to THAT component (its own latency, errors or
   change), at most 4. The alarm and the API latency show the symptom, not the cause.
 - No catch-all: no "unknown issue", no "something else may be affecting", no hypothesis

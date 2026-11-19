@@ -12,8 +12,14 @@ that is too short or includes the problem would hide it (seen on 17/11/2026: the
 "before" minute was the first minute of traffic, inflated by cold starts, and made a
 1,600 ms vendor look only 1.2x slower).
 
+Every latency series comes with its sample count (calls per minute): a p95 over two
+calls is two calls, and the checks refuse to confirm anything on too few (seen on
+18/11/2026: two cold-start requests "confirmed" a slow vendor against an expected
+baseline with no history, issue #7).
+
 Changes count as recent within 15 minutes before the alarm (RECENT_CHANGE); older ones
-are listed for context (CHANGE_WINDOW) but can't confirm a change hypothesis.
+are listed for context (CHANGE_WINDOW) but can't confirm a change hypothesis. Terraform
+applies are the CI apply role's sessions (`apply-<run id>`) in CloudTrail.
 """
 
 from __future__ import annotations
@@ -39,6 +45,8 @@ EXPECTED_P95_MS = {"vendor-recs": 250.0, "valkey": 5.0, "dynamodb": 25.0}
 # CloudTrail write events we don't list: the incident loop's own calls, AppConfig
 # (its own item), and noise from logging/credentials.
 CLOUDTRAIL_IGNORE = ("appconfig.amazonaws.com", "sts.amazonaws.com", "logs.amazonaws.com", "kms.amazonaws.com")
+CLOUDTRAIL_PAGES = 4  # newest 200 write events: an apply is many calls, NAT instances' SSM agent is noisy
+APPLY_SESSION_PREFIX = "apply-"  # apply.yml's role-session-name: apply-<run id>, apply-ops-<run id>
 
 
 @dataclass
@@ -55,18 +63,27 @@ class Clients:
 
 
 def split_series(values: list[float], times: list[datetime] | None = None,
-                 onset: datetime | None = None, expected: float | None = None) -> dict[str, Any]:
-    """Per-minute values, oldest first -> {now, baseline, baseline_source, points}.
+                 onset: datetime | None = None, expected: float | None = None,
+                 counts: dict | None = None) -> dict[str, Any]:
+    """Per-minute values, oldest first -> {now, baseline, baseline_source, points,
+    history_min, samples_now, samples_baseline}.
 
     With times and onset, the baseline is only the minutes before onset; otherwise the
-    minutes before the last NOW_POINTS. Too few -> `expected` (if given) or None."""
+    minutes before the last NOW_POINTS. Too few -> `expected` (if given) or None.
+    `counts` = {timestamp: calls that minute}; without it the sample counts are None."""
     if not values:
-        return {"now": None, "baseline": expected, "baseline_source": "expected" if expected else None, "points": 0}
+        return {"now": None, "baseline": expected, "baseline_source": "expected" if expected else None, "points": 0,
+                "history_min": 0, "samples_now": 0 if counts is not None else None, "samples_baseline": None}
     now_pts = values[-NOW_POINTS:]
     if times and onset:
-        base_pts = [v for t, v in zip(times, values) if t < onset][: max(len(values) - NOW_POINTS, 0)]
+        base_idx = [i for i, t in enumerate(times) if t < onset][: max(len(values) - NOW_POINTS, 0)]
     else:
-        base_pts = values[:-NOW_POINTS]
+        base_idx = list(range(max(len(values) - NOW_POINTS, 0)))
+    base_pts = [values[i] for i in base_idx]
+    samples_now = samples_base = None
+    if counts is not None and times:
+        samples_now = sum(counts.get(t, 0) for t in times[-NOW_POINTS:])
+        samples_base = sum(counts.get(times[i], 0) for i in base_idx)
     if len(base_pts) >= MIN_BASELINE_POINTS:
         baseline, source = round(statistics.median(base_pts), 1), f"median of {len(base_pts)} min before the alarm"
     elif expected is not None:
@@ -74,7 +91,8 @@ def split_series(values: list[float], times: list[datetime] | None = None,
     else:
         baseline, source = None, None
     return {"now": round(statistics.median(now_pts), 1), "baseline": baseline, "baseline_source": source,
-            "points": len(values)}
+            "points": len(values), "history_min": len(base_pts), "samples_now": samples_now,
+            "samples_baseline": samples_base}
 
 
 def _metric_data(cw, queries: list[dict], end: datetime, minutes: int = WINDOW_MIN) -> dict[str, tuple[list, list]]:
@@ -148,30 +166,40 @@ class Collector:
     def dependencies(self, end: datetime) -> None:
         dims = {"customer": self.customer, "env": self.env}
         q = []
+        api_dims = {"ApiId": api_id(self.p["api_url"]), "Stage": "$default"}
         for dep in DEPENDENCIES:
             q.append(_stat(NAMESPACE, "DependencyLatency", {**dims, "dependency": dep}, "p95", f"lat_{_qid(dep)}"))
+            q.append(_stat(NAMESPACE, "DependencyLatency", {**dims, "dependency": dep}, "SampleCount", f"n_{_qid(dep)}"))
             q.append(_stat(NAMESPACE, "DependencyErrors", {**dims, "dependency": dep}, "Sum", f"err_{_qid(dep)}"))
-        q.append(_stat("AWS/ApiGateway", "Latency", {"ApiId": api_id(self.p["api_url"]), "Stage": "$default"}, "p95", "api"))
+        q.append(_stat("AWS/ApiGateway", "Latency", api_dims, "p95", "api"))
+        q.append(_stat("AWS/ApiGateway", "Latency", api_dims, "SampleCount", "n_api"))
         data = _metric_data(self.c.cloudwatch, q, end)
         onset = self.alarm_at - ONSET_LEAD if self.alarm_at else None
 
         def split(qid: str, expected: float | None = None) -> dict[str, Any]:
             times, values = data.get(qid, ([], []))
-            return split_series(values, times, onset, expected)
+            n_times, n_values = data.get("n_" + qid.removeprefix("lat_"), (None, None))
+            counts = dict(zip(n_times, n_values)) if n_times is not None else None
+            return split_series(values, times, onset, expected, counts)
+
+        def calls(s: dict, what: str = "calls") -> str:
+            return "" if s.get("samples_now") is None else f" ({s['samples_now']:.0f} {what})"
 
         def base_text(s: dict) -> str:
             return f"{fmt_ms(s['baseline'])} ({s['baseline_source']})" if s["baseline_source"] else "no baseline"
 
         api = split("api")
         self.add("api_latency",
-                 f"API p95 (API Gateway, all routes): {fmt_ms(api['now'])} in the last {NOW_POINTS} min vs "
+                 f"API p95 (API Gateway, all routes): {fmt_ms(api['now'])} in the last {NOW_POINTS} min"
+                 f"{calls(api, 'requests')} vs "
                  f"{base_text(api)}.",
                  "CloudWatch AWS/ApiGateway Latency p95, 1-min periods, last 30 min", **api)
         for dep in DEPENDENCIES:
             s = split(f"lat_{_qid(dep)}", EXPECTED_P95_MS[dep])
             errors = sum(data.get(f"err_{_qid(dep)}", ([], []))[1][-5:])
             self.add("dependency_latency",
-                     f"{dep} p95 (client side, from catalog-api): {fmt_ms(s['now'])} in the last {NOW_POINTS} min vs "
+                     f"{dep} p95 (client side, from catalog-api): {fmt_ms(s['now'])} in the last {NOW_POINTS} min"
+                     f"{calls(s)} vs "
                      f"{base_text(s)}; {errors:.0f} errors in the last 5 min.",
                      "CloudWatch Showrunner/DependencyLatency p95 + DependencyErrors (EMF), 1-min periods",
                      dependency=dep, errors_5m=errors, **s)
@@ -247,22 +275,41 @@ class Collector:
                  f"Lambda {fn}", versions=versions, live=live)
 
     def cloudtrail(self, end: datetime) -> None:
-        events = self.c.cloudtrail.lookup_events(
-            LookupAttributes=[{"AttributeKey": "ReadOnly", "AttributeValue": "false"}],
-            StartTime=end - CHANGE_WINDOW, EndTime=end, MaxResults=50,
-        )["Events"]
+        events, token = [], None
+        for _ in range(CLOUDTRAIL_PAGES):
+            kw = {"NextToken": token} if token else {}
+            page = self.c.cloudtrail.lookup_events(
+                LookupAttributes=[{"AttributeKey": "ReadOnly", "AttributeValue": "false"}],
+                StartTime=end - CHANGE_WINDOW, EndTime=end, MaxResults=50, **kw)
+            events += page["Events"]
+            token = page.get("NextToken")
+            if not token:
+                break
         counts: dict[str, int] = {}
+        sessions: dict[str, dict] = {}
         for e in events:
-            if e.get("EventSource", "") in CLOUDTRAIL_IGNORE or (e.get("Username") or "").startswith("sr-ops-"):
+            user = e.get("Username") or ""
+            if e.get("EventSource", "") in CLOUDTRAIL_IGNORE or user.startswith("sr-ops-"):
                 continue
             key = f"{e['EventSource'].split('.')[0]}:{e['EventName']}"
             counts[key] = counts.get(key, 0) + 1
+            if user.startswith(APPLY_SESSION_PREFIX):  # a Terraform apply from CI
+                t = e["EventTime"].astimezone(timezone.utc)
+                s = sessions.setdefault(user, {"session": user, "first": t, "last": t, "calls": 0})
+                s["first"], s["last"], s["calls"] = min(s["first"], t), max(s["last"], t), s["calls"] + 1
+        applies = [{"session": s["session"], "first": s["first"].strftime("%H:%M:%S"),
+                    "last": s["last"].strftime("%H:%M:%S"), "calls": s["calls"],
+                    "minutes_before_alarm": self._minutes_before(s["last"], end)}
+                   for s in sorted(sessions.values(), key=lambda s: s["last"], reverse=True)]
         top = sorted(counts.items(), key=lambda kv: -kv[1])[:8]
         text = "none" if not top else ", ".join(f"{k} x{n}" for k, n in top)
+        tf = ("none" if not applies else "; ".join(
+            f"{a['session']} {a['first']}-{a['last']} UTC ({a['calls']} calls, last {a['minutes_before_alarm']:.0f} min "
+            "before the alarm)" for a in applies))
         self.add("infra_changes",
-                 f"Infrastructure write calls in the last 2 h (CloudTrail, newest 50; AppConfig and the incident "
-                 f"loop's own calls excluded; delivery lags ~5-15 min): {text}.",
-                 "CloudTrail LookupEvents ReadOnly=false", counts=dict(top))
+                 f"Infrastructure write calls in the last 2 h (CloudTrail, newest {len(events)}; AppConfig and the "
+                 f"incident loop's own calls excluded; delivery lags ~3-15 min): {text}. Terraform applies (CI): {tf}.",
+                 "CloudTrail LookupEvents ReadOnly=false", counts=dict(top), applies=applies)
 
 
     # ------------------------------------------------------------------ network (Pillar 2b)

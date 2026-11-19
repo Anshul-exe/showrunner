@@ -40,7 +40,9 @@ answering in microseconds can't cause second-long requests)? Was there a config 
 deploy in the window? You get those results.
 
 You only get hypotheses that a check can test; the others are shown to humans as "not
-checkable" without a verdict.
+checkable" without a verdict. A hypothesis whose check says "not enough history" (too
+few calls, or no history before the alarm) keeps that verdict whatever you answer: code
+never lets it be confirmed; explain why the data is too thin.
 
 For each hypothesis (H1, H2, ...):
 - If the checks are conclusive, keep their verdict and explain it in one or two

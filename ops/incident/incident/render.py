@@ -9,7 +9,7 @@ from typing import Any
 
 TOKEN_MARK = "sr-task-token"
 VERDICT = {"confirmed": "**CONFIRMED**", "refuted": "**REFUTED**", "inconclusive": "**inconclusive**",
-           "not-checkable": "not checkable"}
+           "not-checkable": "not checkable", "not-enough-history": "**not enough history**"}
 
 
 def clean(text: Any) -> str:

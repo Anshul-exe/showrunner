@@ -44,7 +44,9 @@ is a cold start, not what viewers feel: on 18/11/2026 two cold requests after a 
 (a preflight call and a smoke test) fired this alarm for all three dev customers and
 the loop proposed a vendor workaround for a cold start. Since then quiet minutes count
 as not breaching. Errors still alarm on their own (`dependency-errors`), whatever the
-traffic.
+traffic. And if an alarm does fire on thin traffic, the loop's checks say "not enough
+history" instead of blaming a dependency, and any deploy in the 15 minutes before is
+always a hypothesis (ADR 0015).
 
 **First question after a deploy.** If `deploys` in the evidence shows a version
 published minutes before the alarm, suspect the deploy (cold starts, a slower code
