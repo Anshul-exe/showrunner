@@ -16,7 +16,10 @@ COMPONENTS = (*DEP_COMPONENTS, "config-change", "lambda", "network", "unknown")
 # deterministic fallback says "unknown", and only as its sole answer ("nothing points").
 MODEL_COMPONENTS = tuple(c for c in COMPONENTS if c != "unknown")
 MAX_CITES = 4  # a hypothesis citing more is a catch-all ("everything else"), not a lead
-CHECKABLE = (*DEP_COMPONENTS, "config-change")
+CHECKABLE = (*DEP_COMPONENTS, "config-change", "network")
+# A runtime flag that points a dependency somewhere else: if it changed and that
+# dependency is failing, the change is the cause and its rollback beats a workaround.
+FLAG_DEPENDENCY = {"vendor_url": "vendor-recs"}
 # Evidence that shows the symptom, not a cause: a hypothesis citing only these has no
 # lead of its own (issue #6 re-run: `lambda` citing only the alarm and the API p95).
 SYMPTOM_KINDS = ("alarm", "api_latency")
@@ -105,15 +108,33 @@ def deterministic_triage(evidence: list[dict], actions: list[dict]) -> list[dict
         }))
     hyps.sort(key=lambda t: -t[0])
     out = [h for _, h in hyps]
+    drift = next(iter(by_kind(evidence, "sg_drift")), None)
+    if drift and drift["data"].get("drift"):
+        cites = [drift["id"], *[e["id"] for k in ("flow_rejects", "reachability", "network_changes")
+                                for e in by_kind(evidence, k)]][:4]
+        out.insert(0, {
+            "component": "network",
+            "statement": "The Lambda -> Valkey security-group rule is gone (drift from Terraform): " + drift["summary"],
+            "impact": "Every new cache connection fails; requests fall back to DynamoDB, slower.",
+            "cites": cites, "action": action_for("network", actions),
+        })
     changed, change_ids = changes_in_window(evidence)
     if changed:
-        out.append({
+        redirected = _flag_points_at_failing_dep(evidence)
+        hyp = {
             "component": "config-change",
             "statement": f"A runtime config change or code deploy in the {RECENT_CHANGE_MIN} min before the alarm "
                          "is still in effect.",
             "impact": "Unknown until the change is compared with the symptoms.",
             "cites": change_ids, "action": action_for("config-change", actions),
-        })
+        }
+        if redirected:  # the change points the failing dependency elsewhere: it's the cause
+            hyp["statement"] = ("The latest flags deployment changed " + ", ".join(redirected)
+                                + ", which points a failing dependency elsewhere; rolling it back fixes the cause.")
+            hyp["impact"] = "Every call to that dependency fails until the change is undone."
+            out.insert(0, hyp)
+        else:
+            out.append(hyp)
     if not out:
         out.append({"component": "unknown",
                     "statement": "No dependency's latency or errors point to a cause, and nothing changed in the window.",
@@ -206,11 +227,78 @@ def check_change(evidence: list[dict]) -> list[dict]:
     return [_check("recent-change-in-effect", "pass" if r["found"] else "fail", detail, r["ids"])]
 
 
+def _flag_points_at_failing_dep(evidence: list[dict]) -> list[str]:
+    """Flags (not at default) that redirect a dependency whose errors/latency are up."""
+    flags = next(iter(by_kind(evidence, "runtime_flags")), None)
+    if not flags:
+        return []
+    out = []
+    for key, dep in FLAG_DEPENDENCY.items():
+        value = (flags["data"].get("flags") or {}).get(key)
+        item = dep_item(evidence, dep)
+        if value and item and elevated(item["data"]):
+            out.append(f"`{key}` to `{value}`")
+    return out
+
+
+def _host(url: str) -> str:
+    return url.split("://", 1)[-1].split("/", 1)[0].rstrip(".").lower()
+
+
+def check_dns(evidence: list[dict]) -> list[dict]:
+    """Does a host set in the flags fail to resolve from inside the VPC? (S4)"""
+    flags = next(iter(by_kind(evidence, "runtime_flags")), None)
+    dns = next(iter(by_kind(evidence, "dns_errors")), None)
+    if not flags or not dns:
+        return []
+    out = []
+    for key in FLAG_DEPENDENCY:
+        value = (flags["data"].get("flags") or {}).get(key)
+        if not value:
+            continue
+        host = _host(value)
+        hits = [n for n in dns["data"].get("names", []) if n.get("name", "").rstrip(".").lower() == host]
+        if hits:
+            out.append(_check("changed-host-resolves", "pass",
+                              f"`{key}` points at `{host}`, which doesn't resolve from the VPC: "
+                              + ", ".join(f"{h['rcode']} x{h['queries']}" for h in hits), [flags["id"], dns["id"]]))
+        else:
+            out.append(_check("changed-host-resolves", "unknown",
+                              f"`{key}` points at `{host}`; no DNS errors logged for it", [flags["id"], dns["id"]]))
+    return out
+
+
+def check_network(evidence: list[dict]) -> list[dict]:
+    drift = next(iter(by_kind(evidence, "sg_drift")), None)
+    if not drift:
+        return [_check("sg-rule", "unknown", "security-group state not collected", [])]
+    d = drift["data"]
+    checks = [_check("sg-rule", "pass" if d.get("drift") else "fail",
+                     (f"the cache security group is missing port(s) {d.get('missing_ports')} from the Lambda security "
+                      "group" if d.get("drift") else "the Lambda -> Valkey rule is in place, as Terraform declares"),
+                     [drift["id"]])]
+    flows = next(iter(by_kind(evidence, "flow_rejects")), None)
+    if flows and (flows["data"].get("surge") or not d.get("drift")):
+        f = flows["data"]
+        checks.append(_check("flow-rejects", "pass" if f.get("surge") else "fail",
+                             f"{f.get('now')} REJECTed flows to 6379/6380 in 10 min vs {f.get('baseline')} in the hour "
+                             "before", [flows["id"]]))
+    reach = next(iter(by_kind(evidence, "reachability")), None)
+    if reach and reach["data"].get("reachable") is not None:
+        blocked = not reach["data"]["reachable"]
+        checks.append(_check("reachability", "pass" if blocked else "fail",
+                             "Reachability Analyzer: catalog-api -> Valkey 6379 " + ("blocked" if blocked else "reachable"),
+                             [reach["id"]]))
+    return checks
+
+
 def checks_for(component: str, evidence: list[dict]) -> list[dict]:
     if component in DEP_COMPONENTS:
         return check_dependency(component, evidence)
     if component == "config-change":
-        return check_change(evidence)
+        return check_change(evidence) + check_dns(evidence)
+    if component == "network":
+        return check_network(evidence)
     return [_check("no-deterministic-check", "unknown", f"no automatic check for '{component}'", [])]
 
 
@@ -256,12 +344,25 @@ def merge_model_verdicts(result: dict[str, Any], model: list[dict]) -> dict[str,
     return result
 
 
-def choose_action(hyps: list[dict], verification: dict[str, Any], actions: list[dict]) -> dict | None:
-    """A1 = the safe action of the highest-ranked CONFIRMED hypothesis."""
+def choose_action(hyps: list[dict], verification: dict[str, Any], actions: list[dict],
+                  evidence: list[dict] | None = None) -> dict | None:
+    """A1 = the safe action of the highest-ranked CONFIRMED hypothesis; a confirmed root
+    cause (network drift, or a flag that redirects the failing dependency) goes first."""
     verdict = {v["hypothesis"]: v["verdict"] for v in verification["verdicts"]}
     allowed = {a["id"]: a for a in actions}
-    for h in hyps:
+    redirected = bool(_flag_points_at_failing_dep(evidence or []))
+
+    def root_cause_first(h: dict) -> int:  # undo the cause before working around a symptom
+        return 0 if h["component"] == "network" or (h["component"] == "config-change" and redirected) else 1
+
+    for h in sorted(hyps, key=root_cause_first):  # stable: otherwise triage's ranking
         a = allowed.get(h.get("action") or "")
         if verdict.get(h["id"]) == "confirmed" and a and a.get("applies_to") == h["component"]:
-            return {"id": "A1", "action_id": a["id"], "hypothesis": h["id"], "spec": a}
+            proposal = {"id": "A1", "action_id": a["id"], "hypothesis": h["id"], "spec": a}
+            if (a.get("appconfig") or {}).get("rollback"):
+                r = recent_changes(evidence or [])
+                if not r["config"]:
+                    continue  # nothing recent to roll back
+                proposal["params"] = {"deployment": r["config"][0]["deployment"]}
+            return proposal
     return None

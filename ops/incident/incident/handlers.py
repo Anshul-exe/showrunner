@@ -101,7 +101,8 @@ def github(event: dict, _ctx=None) -> dict:
     if step in ("propose", "analysis"):
         token = event.get("taskToken") if step == "propose" else None
         body = render.analysis(state["evidence"], state["triage"], state["verification"], state.get("proposal"),
-                               _flags(state["evidence"]), token, int(os.environ.get("APPROVAL_TIMEOUT_MIN", "30")))
+                               _flags(state["evidence"]), token, int(os.environ.get("APPROVAL_TIMEOUT_MIN", "30")),
+                               state.get("recommendation"))
         url = gh.comment(inc["issue"], body)
         audit.record(inc["id"], "propose" if token else "analysis", detail=f"posted {url}",
                      output={"proposal": (state.get("proposal") or {}).get("action_id")}, duration_ms=_ms(t0))
@@ -174,7 +175,10 @@ def evidence_fn(event: dict, _ctx=None) -> dict:
     alarm, inc = state["alarm"], state["incident"]
     params, shared = _customer(alarm)
     if event["step"] == "collect":
-        clients = evidence.Clients(_client("cloudwatch"), _client("appconfig"), _client("lambda"), _client("cloudtrail"))
+        clients = evidence.Clients(_client("cloudwatch"), _client("appconfig"), _client("lambda"), _client("cloudtrail"),
+                                   ec2=_client("ec2"), elasticache=_client("elasticache"), logs=_client("logs"),
+                                   dynamodb=_client("dynamodb"),
+                                   budget_table=os.environ.get("AGENT_BUDGET_TABLE", "sr-ops-agent-budget"))
         items = evidence.collect(clients, alarm, params, shared)
         _audit().record(inc["id"], "evidence", detail=f"{len(items)} items", evidence_ids=[e["id"] for e in items],
                         output=items, duration_ms=_ms(t0))
@@ -236,9 +240,11 @@ def verify_fn(event: dict, _ctx=None) -> dict:
                  "cost_usd": res.cost_usd, "mode": "model"}
     except agents.AgentUnavailable as exc:
         usage["reason"] = str(exc)[:200]
-    proposal = analysis.choose_action(hyps, result, _actions(alarm))
+    proposal = analysis.choose_action(hyps, result, _actions(alarm), state["evidence"])
+    recommendation = None
     if proposal and not runbooks.executable(proposal["spec"]):
-        proposal = None  # the core only executes runtime AppConfig actions
+        # lane `change` (e.g. re-apply the shared stack): shown for a human, not executed
+        recommendation, proposal = proposal, None
     summary = ", ".join(f"{v['hypothesis']} {v['verdict']}" for v in result["verdicts"])
     _audit().record(inc["id"], "verify", agent="verifier", instruction_sha256=doc.sha256, model=usage["model"],
                     input_tokens=usage["input_tokens"], output_tokens=usage["output_tokens"], cost_usd=usage["cost_usd"],
@@ -246,7 +252,7 @@ def verify_fn(event: dict, _ctx=None) -> dict:
                     detail=f"{usage['mode']}: {summary}; proposal: {proposal['action_id'] if proposal else 'none'}"
                            + (f" (model not used: {usage['reason'][:120]})" if usage.get("reason") else ""),
                     output={**result, "model_reason": usage.get("reason")}, duration_ms=_ms(t0))
-    return {**state, "verification": result, "proposal": proposal}
+    return {**state, "verification": result, "proposal": proposal, "recommendation": recommendation}
 
 
 # ========================================================================= act
@@ -260,10 +266,14 @@ def act_fn(event: dict, _ctx=None) -> dict:
     if not runbooks.executable(spec):
         raise ValueError(f"{spec['id']} is not executable by the loop")
     params, shared = _customer(alarm)
-    result = appconfig_change.set_keys(
-        _client("appconfig"), appconfig_change.Target.from_params(params, shared),
-        spec["appconfig"]["profile"], spec["appconfig"]["set"],
-        f"incident {inc['id']} {proposal['id']} {spec['id']} approved by {approval.get('approver')}")
+    target = appconfig_change.Target.from_params(params, shared)
+    why = f"incident {inc['id']} {proposal['id']} {spec['id']} approved by {approval.get('approver')}"
+    if spec["appconfig"].get("rollback"):  # only the deployment the analysis cited
+        result = appconfig_change.rollback(_client("appconfig"), target, spec["appconfig"]["profile"],
+                                           int(proposal["params"]["deployment"]), why)
+    else:
+        result = appconfig_change.set_keys(_client("appconfig"), target, spec["appconfig"]["profile"],
+                                           spec["appconfig"]["set"], why)
     _audit().record(inc["id"], "act", detail=f"{spec['id']}: AppConfig deployment #{result['deployment']} "
                     f"live in {result['seconds']} s", approver=approval.get("approver"),
                     approval_comment=approval.get("comment_url"), output=result, duration_ms=_ms(t0))

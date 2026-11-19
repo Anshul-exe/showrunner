@@ -16,7 +16,7 @@ locals {
   name    = "sr-ops"
   account = data.aws_caller_identity.current.account_id
   region  = data.aws_region.current.region
-  arn     = { for svc in ["ssm", "dynamodb", "cloudwatch", "appconfig", "lambda", "sns", "states"] : svc => "arn:aws:${svc}:${local.region}:${local.account}" }
+  arn     = { for svc in ["ssm", "dynamodb", "cloudwatch", "appconfig", "lambda", "sns", "states", "ec2", "logs", "elasticache"] : svc => "arn:aws:${svc}:${local.region}:${local.account}" }
 }
 
 # ------------------------------------------------------------------ what it serves
@@ -119,7 +119,7 @@ locals {
     evidence = {
       handler     = "incident.handlers.evidence_fn", timeout = 90, policy = data.aws_iam_policy_document.evidence.json
       description = "Incident loop: read-only evidence collection and the recovery check."
-      env         = { RECOVERY_P95_MS = tostring(var.recovery_p95_ms) }
+      env         = { RECOVERY_P95_MS = tostring(var.recovery_p95_ms), AGENT_BUDGET_TABLE = aws_dynamodb_table.agent_budget.name }
     }
     triage = {
       handler     = "incident.handlers.triage_fn", timeout = 60, policy = data.aws_iam_policy_document.agent["triage"].json
@@ -220,6 +220,67 @@ data "aws_iam_policy_document" "evidence" {
     sid       = "EnvOutputs"
     actions   = ["ssm:GetParametersByPath"]
     resources = local.env_params
+  }
+
+  # ---- network evidence (Pillar 2b, ops/lib/opslib/network.py): read-only, except the
+  # Reachability Analyzer path/analysis, which change nothing in the network.
+  statement {
+    sid = "NetworkReadOnly"
+    # Describe*/Get* don't support resource-level permissions. The list is the EC2 read
+    # part of AWS's AmazonVPCReachabilityAnalyzerFullAccessPolicy (v5) minus Transit
+    # Gateway/VPN/Direct Connect, which this platform doesn't have: the analyzer reads
+    # the path's components with the caller's permissions.
+    actions = [
+      "ec2:DescribeSecurityGroups", "ec2:DescribeNetworkInterfaces", "ec2:DescribeNetworkInsightsAnalyses",
+      "ec2:DescribeNetworkInsightsPaths", "ec2:DescribeSubnets", "ec2:DescribeRouteTables", "ec2:DescribeNetworkAcls",
+      "ec2:DescribeVpcs", "ec2:DescribeVpcEndpoints", "ec2:DescribeVpcEndpointServiceConfigurations",
+      "ec2:DescribeInstances", "ec2:DescribeInternetGateways", "ec2:DescribeNatGateways", "ec2:DescribeAddresses",
+      "ec2:DescribePrefixLists", "ec2:DescribeManagedPrefixLists", "ec2:GetManagedPrefixListEntries",
+      "ec2:DescribeVpcPeeringConnections", "ec2:DescribeAvailabilityZones", "ec2:DescribeRegions",
+      "tiros:CreateQuery", "tiros:GetQueryAnswer", "tiros:GetQueryExplanation",
+      "logs:GetQueryResults", "logs:StopQuery",
+    ]
+    resources = ["*"]
+  }
+
+  statement {
+    sid       = "ReachabilityAnalyzerRun"
+    actions   = ["ec2:CreateNetworkInsightsPath", "ec2:StartNetworkInsightsAnalysis", "ec2:CreateTags"]
+    resources = ["${local.arn.ec2}:network-insights-path/*", "${local.arn.ec2}:network-insights-analysis/*", "${local.arn.ec2}:network-interface/*"]
+  }
+
+  statement {
+    sid       = "ReachabilityAnalyzerCleanupOwnOnly"
+    actions   = ["ec2:DeleteNetworkInsightsPath", "ec2:DeleteNetworkInsightsAnalysis"]
+    resources = ["${local.arn.ec2}:network-insights-path/*", "${local.arn.ec2}:network-insights-analysis/*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceTag/sr"
+      values   = ["reachability"]
+    }
+  }
+
+  statement {
+    sid       = "ReachabilityDailyCap"
+    actions   = ["dynamodb:UpdateItem"]
+    resources = [aws_dynamodb_table.agent_budget.arn]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["reachability#*"]
+    }
+  }
+
+  statement {
+    sid       = "FlowAndResolverLogsQuery"
+    actions   = ["logs:StartQuery"]
+    resources = flatten([for env in var.envs : ["${local.arn.logs}:log-group:/sr/sr-${env}/*", "${local.arn.logs}:log-group:/sr/sr-${env}/*:*"]])
+  }
+
+  statement {
+    sid       = "CacheSecurityGroupLookup"
+    actions   = ["elasticache:DescribeServerlessCaches"]
+    resources = ["${local.arn.elasticache}:serverlesscache:*"]
   }
 }
 
