@@ -195,3 +195,28 @@ def test_cache_connection_is_recycled_after_max_age():
     now[0] += svc.cache_max_age_s
     svc.cache_get("acme-tv:x")
     assert len(made) == 2 and made[0].closed
+
+
+def test_cache_breaker_skips_the_cache_after_a_failure_then_retries():
+    """S3 drill finding: without a breaker every request paid two failed connects and
+    hit the Lambda timeout. With it: one failed call, then DynamoDB only (each skip
+    still counted as a valkey error), then one retry after 30 s."""
+    made = []
+
+    def factory():
+        made.append(FakeValkey(fail=True))
+        return made[-1]
+
+    svc, _, out = make_service()
+    svc._cache_factory = factory
+    now = [1000.0]
+    svc._clock = lambda: now[0]
+    for _ in range(3):
+        status, body = get(svc, "/titles/t01")
+        assert status == 200
+    assert len(made) == 1  # only the first request tried to connect
+    last = emf(out)["valkey"]  # the third request: both cache calls skipped, both counted
+    assert last["DependencyErrors"] == 2 and max(last["DependencyLatency"]) < 5
+    now[0] += svc.cache_retry_after_s + 1
+    get(svc, "/titles/t01")
+    assert len(made) == 2  # breaker closed: one new attempt

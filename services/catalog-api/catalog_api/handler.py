@@ -32,6 +32,16 @@ FLAG_DEFAULTS = {"vendor_fallback": False, "catalog_ttl_s": 300, "recs_ttl_s": 1
 # topology, and a security-group change takes effect within this time instead of at the
 # next cold start: established connections survive a revoked rule).
 CACHE_MAX_CONN_AGE_S = 120
+# Circuit breaker: after a failed cache call, skip the cache for this long. Without it,
+# an unreachable cache costs ~3 s per connect attempt (1 s per endpoint IP), a request
+# makes two (get + set), the 6 s Lambda timeout kills the environment, and the next
+# request is a cold start that tries again: a cache outage became a full outage
+# (S3 drill, 18/11/2026: every request 503 after 8.8 s).
+CACHE_RETRY_AFTER_S = 30
+
+
+class CacheSkipped(Exception):
+    """The breaker is open: counted as a valkey error (~0 ms), then DynamoDB serves."""
 TITLE_ID = re.compile(r"^[a-z0-9-]{1,32}$")
 
 
@@ -57,6 +67,8 @@ class Service:
         self._cache_born = 0.0
         self.cache_max_age_s = CACHE_MAX_CONN_AGE_S
         self._clock = time.monotonic
+        self._cache_down_until = 0.0
+        self.cache_retry_after_s = CACHE_RETRY_AFTER_S
         self.log = log
         self.deps = deps
 
@@ -85,13 +97,19 @@ class Service:
         """A cache failure degrades to DynamoDB; it never fails the request."""
         try:
             with self.deps.call("valkey"):
+                if self._clock() < self._cache_down_until:
+                    raise CacheSkipped("circuit open")
                 client = self._client()
                 if client is None:
                     return None
                 return getattr(client, op)(*args, **kwargs)
+        except CacheSkipped:
+            return None  # already logged when the breaker opened
         except Exception as exc:
-            self._drop_cache()  # reconnect (fresh IAM token) on the next call
-            self.log.warning("cache unavailable", dependency="valkey", error_type=type(exc).__name__)
+            self._drop_cache()  # reconnect (fresh IAM token) after the breaker closes
+            self._cache_down_until = self._clock() + self.cache_retry_after_s
+            self.log.warning("cache unavailable", dependency="valkey", error_type=type(exc).__name__,
+                             retry_after_s=self.cache_retry_after_s)
             return None
 
     def warm(self) -> None:
@@ -106,7 +124,8 @@ class Service:
             if client is not None:
                 client.ping()
         except Exception as exc:
-            self._cache = None
+            self._drop_cache()
+            self._cache_down_until = self._clock() + self.cache_retry_after_s
             self.log.warning("cache warm-up failed", dependency="valkey", error_type=type(exc).__name__)
 
     def cache_get(self, key: str) -> Any:
