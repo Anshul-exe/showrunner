@@ -1,0 +1,79 @@
+{
+ "customer": "acme-tv",
+ "rps": 5.0,
+ "fail": 0.2,
+ "started_utc": "13:55:23",
+ "deploy_end_utc": "13:59:40",
+ "deploy_rc": 1,
+ "deploy_output": "sr-acme-tv-dev-catalog-api: v6 -> v7: 10% for 5 min, watching sr-acme-tv-dev-canary-errors, sr-acme-tv-dev-api-latency\nsr-acme-tv-dev-catalog-api: rolled-back after 154 s (alarm: sr-acme-tv-dev-canary-errors)\nsr-acme-tv-dev-catalog-api: back on v6; its code re-published as v8 (newest = live)\n{\n \"ok\": false,\n \"functions\": [\n  {\n   \"function\": \"sr-acme-tv-dev-catalog-api\",\n   \"status\": \"rolled-back\",\n   \"from\": \"6\",\n   \"to\": \"7\",\n   \"seconds\": 154.4,\n   \"restored\": \"8\",\n   \"detail\": \"alarm: sr-acme-tv-dev-canary-errors\"\n  }\n ]\n}\n",
+ "per_minute": [
+  {
+   "minute": "13:55",
+   "6": {
+    "n": 176,
+    "errors": 0
+   }
+  },
+  {
+   "minute": "13:56",
+   "6": {
+    "n": 300,
+    "errors": 0
+   }
+  },
+  {
+   "minute": "13:57",
+   "6": {
+    "n": 265,
+    "errors": 0
+   },
+   "7": {
+    "n": 34,
+    "errors": 7
+   }
+  },
+  {
+   "minute": "13:58",
+   "6": {
+    "n": 270,
+    "errors": 0
+   },
+   "7": {
+    "n": 30,
+    "errors": 8
+   }
+  },
+  {
+   "minute": "13:59",
+   "6": {
+    "n": 283,
+    "errors": 0
+   },
+   "7": {
+    "n": 16,
+    "errors": 3
+   }
+  },
+  {
+   "minute": "14:00",
+   "6": {
+    "n": 299,
+    "errors": 0
+   }
+  },
+  {
+   "minute": "14:01",
+   "6": {
+    "n": 300,
+    "errors": 0
+   }
+  },
+  {
+   "minute": "14:02",
+   "6": {
+    "n": 208,
+    "errors": 0
+   }
+  }
+ ]
+}

@@ -123,10 +123,12 @@ Canary deploys ([ADR 0016](docs/adr/0016-lane-2-canary.md)): CodeDeploy needs a 
 AWS plan, so the deploy tool does what CodeDeploy does: a weighted Lambda alias (10% for
 5 minutes), rollback driven by the API's 5xx and latency alarms, and re-publishing the
 good build after a rollback. CI deploys only a zip it attested on `main`, by digest. First real run on dev on 19/11/2026: three customers
-promoted after 320-340 s ([record](docs/demo/canary.md)); **S2 (the rollback) not run
-yet**.
+promoted after 320-340 s. **S2** (a build that fails 20% of searches) on the same day:
+10% of requests reached it (measured: 80 of 898), `canary-errors` rolled it back after
+154 s, 18 failed searches in all (2% of searches for 2.5 minutes), the old version served
+2,101 requests with 0 errors ([record](docs/demo/canary.md)).
 
-**Not built yet** (in order, [docs/ROADMAP.md](docs/ROADMAP.md)): container images (by digest, with provenance), the S2 drill, then prod, SLO burn-rate
+**Not built yet** (in order, [docs/ROADMAP.md](docs/ROADMAP.md)): container images (by digest, with provenance), then prod, SLO burn-rate
 alarms, load tests that find the breaking point, cost reports, an MCP server, and the
 other four review specialists.
 

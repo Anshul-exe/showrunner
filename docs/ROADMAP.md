@@ -43,7 +43,8 @@ six-month goals there, so each tier is also a plan for those goals.
    alias weights itself (10% for 5 minutes, rolled back on the API's 5xx or latency
    alarm); the readiness gate requires a canary config. CI deploys after the owner
    applies the bootstrap change; until then `./sr deploy catalog-api` runs the same
-   canary. Not built yet: the container image (after the round, owner 19/11/2026).
+   canary. S2 drilled on dev 19/11/2026: rolled back after 154 s (docs/demo/canary.md).
+   Not built yet: the container image (after the round, owner 19/11/2026).
 
 ## Tier 3: the full design, ranked (not started; the owner picks after the round)
 
