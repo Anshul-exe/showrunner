@@ -56,6 +56,39 @@ Rules that make this hold:
 - A new customer needs an ops-core apply before the loop can act for it (the act role
   lists their AppConfig apps by ID).
 
+### The task token sits in a public issue comment (reviewed 19/11/2026)
+
+The approval comment carries the Step Functions task token in an HTML comment
+(`<!-- sr-task-token A1 ... -->`), so anyone can read it in this public repo. Why that
+doesn't let anyone approve:
+
+- **A token is not a credential.** Completing the task needs `states:SendTaskSuccess`
+  with AWS credentials *in this account*. Outside it the token does nothing.
+- **Who has that permission:** the approver role, which only `approve.yml` on `main`
+  can assume (OIDC trust pinned to the workflow file and the branch, ADR 0008/0009);
+  and the PowerUserAccess apply roles, pinned to `apply.yml` on `main` and their
+  environment. The owner's admin user has it too. PR workflows (plan, review) get
+  roles without it. Checked with the IAM simulator on 19/11/2026: `showrunner-ci-apply-dev`,
+  `-apply-prod` and `-approver` are allowed; `-plan`, `-review-agents` and `-deploy-dev`
+  are not. The action can't be scoped to one state machine: SendTaskSuccess
+  has no resource type.
+- **`approve.yml` decides whether the commenter may approve** (a CODEOWNER with
+  maintain or admin), and it reads tokens only from comments made by the incident
+  loop's GitHub App, so a pasted token is ignored.
+- **The token is single-use and expires with the task** (30 minutes, then escalation).
+  Inside the account it isn't secret anyway: execution history shows it to any role
+  that can read Step Functions.
+- **The act step re-checks** that the approved action is the one proposed, from the
+  runbook's menu. It refuses anything else.
+
+What it doesn't stop: a principal that already has those AWS permissions could approve
+under any name, with or without the comment. That's an account-access problem, not a
+GitHub one. **Planned (ROADMAP):** keep the token out of GitHub. Write it to the audit
+table (`pk` = incident, `sk` = `TOKEN#A1`). The App's comment then carries only a
+reference, and the approver role gets `dynamodb:GetItem` on those keys alone. Not done
+before the round: it changes the `/approve` path the demo relies on, and needs a
+bootstrap apply plus an incident deploy.
+
 ## When we'd decide differently
 
 With a track record (say, 20 incidents where the approved action was always the

@@ -23,7 +23,29 @@ DEFAULTS: dict[str, dict[str, Any]] = {
 # an environment whose schema (applied by Terraform) doesn't know it yet.
 OPTIONAL: dict[str, set[str]] = {"flags": {"vendor_url"}, "chaos": set()}
 ACTIVE = {"BAKING", "DEPLOYING", "VALIDATING"}
-LIVE = {"BAKING", "COMPLETE", "ROLLED_BACK", "ROLLING_BACK"}
+LIVE = {"BAKING", "COMPLETE"}
+ROLLED_BACK = {"ROLLED_BACK", "ROLLING_BACK"}
+
+
+class RolledBack(RuntimeError):
+    """AppConfig rolled the deployment back: nothing changed. Issue #17 (19/11/2026): a fix
+    deployed while the environment's rollback monitor was in ALARM was rolled back in 5 s,
+    and this code used to report it as live."""
+
+
+def _wait_live(ac, t: "Target", number: int, sleep: Callable[[float], None]) -> str:
+    """Wait until deployment `number` serves the config (BAKING or COMPLETE). Raises
+    RolledBack, with AppConfig's reason, if it was rolled back instead."""
+    while True:
+        d = ac.get_deployment(ApplicationId=t.application_id, EnvironmentId=t.environment_id,
+                              DeploymentNumber=number)
+        if d["State"] in LIVE:
+            return d["State"]
+        if d["State"] in ROLLED_BACK:
+            why = next((e.get("Description", "") for e in d.get("EventLog", [])
+                        if e.get("EventType", "").startswith("ROLLBACK")), "")
+            raise RolledBack(f"AppConfig rolled back deployment #{number}: nothing changed. {why}".strip())
+        sleep(2)
 
 
 @dataclass(frozen=True)
@@ -104,13 +126,7 @@ def set_keys(ac, t: Target, profile: str, changes: dict[str, Any], description: 
         ConfigurationProfileId=t.profile_ids[profile], ConfigurationVersion=str(version),
         DeploymentStrategyId=t.strategy_id, Description=description[:1024],
     )["DeploymentNumber"]
-    while True:
-        state = ac.get_deployment(
-            ApplicationId=t.application_id, EnvironmentId=t.environment_id, DeploymentNumber=number
-        )["State"]
-        if state in LIVE:
-            break
-        sleep(2)
+    state = _wait_live(ac, t, number, sleep)
     return {
         "profile": profile, "before": current, "after": new, "version": version,
         "deployment": number, "state": state, "seconds": round(time.time() - started, 1),
@@ -152,12 +168,7 @@ def rollback(ac, t: Target, profile: str, expected_deployment: int, description:
         ConfigurationProfileId=t.profile_ids[profile], ConfigurationVersion=str(good["version"]),
         DeploymentStrategyId=t.strategy_id, Description=description[:1024],
     )["DeploymentNumber"]
-    while True:
-        state = ac.get_deployment(ApplicationId=t.application_id, EnvironmentId=t.environment_id,
-                                  DeploymentNumber=number)["State"]
-        if state in LIVE:
-            break
-        sleep(2)
+    state = _wait_live(ac, t, number, sleep)
     after = ac.get_hosted_configuration_version(
         ApplicationId=t.application_id, ConfigurationProfileId=t.profile_ids[profile], VersionNumber=good["version"]
     )["Content"].read()

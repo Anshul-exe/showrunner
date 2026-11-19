@@ -129,3 +129,30 @@ def test_optional_key_at_its_default_is_not_written():
     assert "vendor_url" not in ac.created[0]
     appconfig_change.set_keys(ac, T, "flags", {"vendor_url": "https://a.on.aws"}, "x", sleep=lambda s: None)
     assert ac.created[1]["vendor_url"] == "https://a.on.aws"
+
+
+class RolledBackAppConfig(HistoryAppConfig):
+    """Issue #17: the fix deployment (#22) is rolled back because the monitor alarm is firing."""
+
+    def get_deployment(self, DeploymentNumber, **kw):
+        if DeploymentNumber == 7:
+            return {"State": "ROLLED_BACK", "EventLog": [
+                {"EventType": "ROLLBACK_COMPLETED", "Description": "The following CloudWatch monitors are in "
+                 "alarm: [arn:aws:cloudwatch:us-east-1:1:alarm:sr-acme-tv-dev-dependency-errors]"},
+                {"EventType": "DEPLOYMENT_STARTED", "Description": "Deployment started"}]}
+        return super().get_deployment(DeploymentNumber, **kw)
+
+
+def test_a_rolled_back_rollback_is_a_failure_not_a_success():
+    ac = RolledBackAppConfig()
+    ac.get_hosted_configuration_version = lambda **kw: {"Content": io.BytesIO(
+        HistoryAppConfig.VERSIONS[kw.get("VersionNumber", 4)])}
+    with pytest.raises(appconfig_change.RolledBack, match="rolled back deployment #7.*dependency-errors"):
+        appconfig_change.rollback(ac, T, "flags", 21, "incident x A1", sleep=lambda s: None)
+
+
+def test_a_rolled_back_set_keys_is_a_failure_not_a_success():
+    ac = RolledBackAppConfig()
+    ac.get_hosted_configuration_version = lambda **kw: {"Content": io.BytesIO(HistoryAppConfig.VERSIONS[4])}
+    with pytest.raises(appconfig_change.RolledBack, match="nothing changed"):
+        appconfig_change.set_keys(ac, T, "flags", {"vendor_url": ""}, "S4 stop", sleep=lambda s: None)

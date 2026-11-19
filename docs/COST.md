@@ -67,6 +67,26 @@ pool-vs-silo trade-off in ADR 0006, in numbers.
 **Not yet measured:** the first real bill. Cost Explorer data lags ~24 h; this table
 gets an "actual" column after the first full week.
 
+## Real spend to date (Cost Explorer, read 19/11/2026 14:05 UTC)
+
+Cost Explorer lags up to a day, so 19/11 is partial. **Gross** = usage before the
+Free-plan credits (what the budgets watch); **net** = what is billed.
+
+| Period | Gross | Net (after credits) | Budget |
+|---|---|---|---|
+| 01-19/11/2026 (first usage 17/11) | **$1.11** | **$0.00** (credits -$1.11) | $60/month: 1.8% used |
+| Bedrock, same period | $0.003 | $0.00 | $5/month: 0.06% used |
+
+By service, gross: VPC $0.47 (public IPv4 + Reachability Analyzer), ElastiCache $0.27,
+EC2 compute $0.26 (the NAT instance), Systems Manager $0.05, EBS $0.03, API Gateway
+$0.01, S3 $0.01, CloudWatch $0.005.
+
+**18/11, the one full day: $0.88 gross.** Of that, $0.30 was 3 Reachability Analyzer runs
+(the S3 drills, $0.10 each). The rest, $0.58/day, is the always-on floor (NAT instance
+$0.20, Valkey $0.20, public IPv4 $0.12, EBS $0.02, AppConfig deployments $0.02,
+requests), i.e. **~$17/month**: the bottom of the modelled $17-22 range. Drills add
+$0.10 per Reachability Analyzer run (capped at 2 a day in code).
+
 ## Never created (the conftest policy and the CI permission boundary both enforce it)
 
 EKS (~$73/month control plane), NAT gateways, RDS/Aurora, MQ, OpenSearch, ALB/NLB,
