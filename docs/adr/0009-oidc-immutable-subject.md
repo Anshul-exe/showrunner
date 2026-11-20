@@ -27,10 +27,7 @@ Applied in place to the seven CI roles (no role recreated; IAM guardrail tests p
 
 ## Diagram: which workflow gets which role
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/03-ci-trust-dark.png">
-  <img alt="CI/CD trust map: plan.yml, apply.yml, build-deploy.yml, review-agents.yml and approve.yml each get one OIDC role (plan, apply-dev, apply-prod behind a reviewer, deploy-dev, review-agents, approver) that can do one job; ci.yml and supply-chain.yml get no AWS role" src="../diagrams/03-ci-trust.png">
-</picture>
+<img alt="CI/CD trust map: plan.yml, apply.yml, build-deploy.yml, review-agents.yml and approve.yml each get one OIDC role (plan, apply-dev, apply-prod behind a reviewer, deploy-dev, review-agents, approver) that can do one job; ci.yml and supply-chain.yml get no AWS role" src="../diagrams/03-ci-trust.png">
 
 ## How to debug this next time
 
