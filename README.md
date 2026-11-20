@@ -117,8 +117,13 @@ changes, flow-log REJECTs, Resolver NXDOMAINs and a capped Reachability Analyzer
 ([case file](docs/demo/case-files/S3.md)): the first drill found a real bug (a cache
 outage became a full outage: 503 after 8.8 s), fixed with a circuit breaker; the second
 served every request. The Terraform half (Resolver logs, evidence IAM, flags schema) was applied through CI
-on 19/11/2026; the loop's new code isn't deployed to AWS yet, so **S4 (DNS) is built and
-unit-tested but not yet run**.
+on 19/11/2026. **S4** (a flags change with a typo'd vendor host) ran through the deployed
+loop on 19/11/2026 ([case file](docs/demo/case-files/S4.md)): the config change was
+confirmed by the Resolver logs (NXDOMAIN) 18 s after the alarm; after `/approve` the loop
+rolled back exactly that deployment (live 312 s after the alarm) and the vendor's errors
+went to 0 the next minute (issue #19). The first run (#17) escalated with no approval and
+changed nothing, and found that AppConfig's rollback monitor blocked every fix and caught
+nothing: removed ([ADR 0017](docs/adr/0017-no-appconfig-rollback-monitor.md)).
 Canary deploys ([ADR 0016](docs/adr/0016-lane-2-canary.md)): CodeDeploy needs a paid
 AWS plan, so the deploy tool does what CodeDeploy does: a weighted Lambda alias (10% for
 5 minutes), rollback driven by the API's 5xx and latency alarms, and re-publishing the

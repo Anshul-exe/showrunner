@@ -43,8 +43,10 @@ start` warns when the demo traffic ends within 20 minutes; the demo uses 40-minu
 traffic. The same trap exists in production: a latency alarm with `notBreaching` goes
 OK when traffic stops (see [the runbook](../../ops/runbooks/api-latency.md)).
 
-Some minutes of the 13:24-13:31 check show up to 360 requests against 180 sent; no other
-client of the operator's was running then. Not explained.
+Some minutes of the 13:24-13:31 check show up to 360 requests a minute: the operator ran
+the same 5-minute traffic command (3 rps, 180 a minute) in a second terminal, starting
+about 2 minutes after the first, so the two runs overlapped (180 + 180). The p95 figures
+above are server side over all of those requests.
 
 ## 18/11/2026: the whole loop, issue #6 (the fallback for the demo)
 
