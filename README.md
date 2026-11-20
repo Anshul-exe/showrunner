@@ -14,28 +14,23 @@ The problems this answers are public ones, listed with sources in
 [docs/problem-map.md](docs/problem-map.md). Customers are fictional: `acme-tv` and
 `nordic-sports`.
 
+## The platform
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/01-platform-dark.png">
+  <img alt="Showrunner on AWS: viewers reach a per-customer API Gateway and catalog-api Lambda in private subnets; Lambda uses a shared Valkey cache and a per-customer DynamoDB table via a gateway endpoint, and reaches the vendor and AppConfig through a NAT instance in a public subnet; CloudWatch alarms go through EventBridge to the Step Functions incident loop, which talks to GitHub and changes only AppConfig flags" src="docs/diagrams/01-platform.png">
+</picture>
+
+One Free-plan account, `us-east-1`, the `dev` environment. Shared per environment: the VPC, the NAT instance (ADR 0003), the cache and the vendor mock. Per customer, from one YAML file: the API, the function, the table, the config and the alarms.
+
 ## What happens in an incident (built, run on 17/11/2026)
 
-```mermaid
-flowchart LR
-  subgraph customer["per customer (acme-tv, nordic-sports)"]
-    API[API Gateway] --> FN[catalog-api<br/>Lambda in VPC]
-    FN --> VK[(Valkey<br/>shared, IAM auth)]
-    FN --> DDB[(DynamoDB)]
-    FN -->|via NAT instance| VEN[external vendor<br/>mock, chaos via AppConfig]
-    AC[AppConfig<br/>flags + chaos] -.-> FN
-  end
-  FN -->|per-dependency p95 + errors| CW[CloudWatch alarms]
-  CW -->|ALARM| EB[EventBridge]
-  EB --> SF[Step Functions<br/>incident loop]
-  SF -->|issue, evidence E1..En| GH[GitHub issue<br/>via GitHub App]
-  SF --> TR[triage agent] --> VR[verifier:<br/>numeric checks decide]
-  VR -->|A1 from the runbook| GH
-  GH -->|/approve A1 by a CODEOWNER| AP[approve.yml<br/>OIDC, can only answer]
-  AP -->|task token| SF
-  SF -->|act: flags only| AC
-  SF --> AU[(audit table)] --> PIR[post-incident review]
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/02-incident-loop-dark.png">
+  <img alt="The incident loop: a CloudWatch alarm starts a Step Functions loop that collects evidence, runs a triage agent and a verifier on Bedrock, posts a proposal to a GitHub issue, waits for /approve, changes only an AppConfig flag, checks recovery every minute and posts a post-incident review" src="docs/diagrams/02-incident-loop.png">
+</picture>
+
+Five functions with five IAM roles; only `act` can change anything, and only flags. All five diagrams, with the HTML they're rendered from: [docs/diagrams](docs/diagrams/README.md).
 
 Measured on `dev` with scenario S1 (the vendor gets 1.5 s slower for `acme-tv`), end to
 end on **18/11/2026**, issue [#6](https://github.com/Anshul-exe/showrunner/issues/6)
@@ -144,6 +139,6 @@ platform/        Terraform: bootstrap (CI roles, state), shared/<env>, customers
 services/        catalog-api, vendor-mock (Lambda, Python 3.12)
 ops/             agents (instruction files), runbooks, incident (the loop), lib, scenarios
 tools/           sr (operator CLI), build (reproducible zips), ci (changed stacks, plan comments, approve)
-docs/            ADRs, cost, problem map, roadmap, demo script + recorded fallbacks
+docs/            ADRs, diagrams, cost, problem map, roadmap, demo script + recorded fallbacks
 tests/           pytest + moto: services, ops, CI tools, sr (IAM guardrails: platform/bootstrap/tests)
 ```
