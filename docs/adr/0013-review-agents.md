@@ -75,6 +75,13 @@ the part worth getting right.
   cap, scope, `iam`, output schema). `tests/review_agents` fails CI if the bootstrap role
   grants anything beyond the agents' `iam` plus the counter, or uses another model.
 
+## Diagram
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/05-review-agents-dark.png">
+  <img alt="PR review agents: a pull request goes through an evidence job (router and checkov on changed lines, read-only), a review job (the iac-security specialist and the verifier, Bedrock only) and a gate job that writes the PR comment and the required check; a maintainer can override with accept-risk and a reason, which writes an audit row" src="../diagrams/05-review-agents.png">
+</picture>
+
 ## Consequences
 
 - Recorded run on the seeded change (18/11/2026 11:27 UTC, local, real Bedrock): one
