@@ -66,7 +66,8 @@ tests, docs and a recorded run.
 | 11 | Slack approvals, pager integration, on-call rota file | P2 | 1 day | |
 | 12 | **Task token out of GitHub** (ADR 0005): the token goes to the audit table and the App's comment carries only a reference; the approver role reads it with `GetItem` on `TOKEN#` keys | P3 | half a day | needs a bootstrap apply and an incident deploy; old issues keep working |
 | 13 | **Config regression monitors** that don't block fixes (per-config metrics, a longer bake), after ADR 0017 removed the old monitor | P5 | 1 day | |
-| 14 | custom domain (after CloudFront is verified for the account), S6, New Relic export | - | half a day each | |
+| 14 | **Recovery check on the alarm's own metric** (an errors alarm: its error count; today it's the API p95, which S4 never raised: #19) | P2 | half a day | |
+| 15 | custom domain (after CloudFront is verified for the account), S6, New Relic export | - | half a day each | |
 
 Tier 2 remainder, also after the round: the **container image** (arm64, ECR by digest,
 provenance; 1 day).
