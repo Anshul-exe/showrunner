@@ -1,8 +1,8 @@
 # Diagrams
 
 Five pictures of what's built, as of 20/11/2026. Each one has a self-contained `.html`
-file (the source: open it in a browser, it works offline) and a light and dark `.png`
-rendered from it.
+file (the source: open it in a browser, it works offline) and a `.png` rendered
+from it (light theme).
 
 | Diagram | Shows | Used in |
 |---|---|---|
@@ -20,8 +20,7 @@ canary promoted after 320-340 s and S2 rolled back in 154 s (19/11/2026).
 
 The HTML is the source of truth: node positions, labels and arrows are plain markup
 in it. Edit the HTML, then re-render the PNGs with headless Chromium (Playwright),
-screenshotting the `.canvas` element at 2x in the light theme and with
-`data-theme="dark"` on `<html>`. When the system changes, update the diagram in the
+screenshotting the `.canvas` element at 2x in the light theme. When the system changes, update the diagram in the
 same PR, the same way as a README number.
 
 ## Credits

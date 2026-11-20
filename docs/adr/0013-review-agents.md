@@ -77,10 +77,7 @@ the part worth getting right.
 
 ## Diagram
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/05-review-agents-dark.png">
-  <img alt="PR review agents: a pull request goes through an evidence job (router and checkov on changed lines, read-only), a review job (the iac-security specialist and the verifier, Bedrock only) and a gate job that writes the PR comment and the required check; a maintainer can override with accept-risk and a reason, which writes an audit row" src="../diagrams/05-review-agents.png">
-</picture>
+<img alt="PR review agents: a pull request goes through an evidence job (router and checkov on changed lines, read-only), a review job (the iac-security specialist and the verifier, Bedrock only) and a gate job that writes the PR comment and the required check; a maintainer can override with accept-risk and a reason, which writes an audit row" src="../diagrams/05-review-agents.png">
 
 ## Consequences
 

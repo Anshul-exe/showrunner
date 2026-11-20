@@ -16,19 +16,13 @@ The problems this answers are public ones, listed with sources in
 
 ## The platform
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/01-platform-dark.png">
-  <img alt="Showrunner on AWS: viewers reach a per-customer API Gateway and catalog-api Lambda in private subnets; Lambda uses a shared Valkey cache and a per-customer DynamoDB table via a gateway endpoint, and reaches the vendor and AppConfig through a NAT instance in a public subnet; CloudWatch alarms go through EventBridge to the Step Functions incident loop, which talks to GitHub and changes only AppConfig flags" src="docs/diagrams/01-platform.png">
-</picture>
+<img alt="Showrunner on AWS: viewers reach a per-customer API Gateway and catalog-api Lambda in private subnets; Lambda uses a shared Valkey cache and a per-customer DynamoDB table via a gateway endpoint, and reaches the vendor and AppConfig through a NAT instance in a public subnet; CloudWatch alarms go through EventBridge to the Step Functions incident loop, which talks to GitHub and changes only AppConfig flags" src="docs/diagrams/01-platform.png">
 
 One Free-plan account, `us-east-1`, the `dev` environment. Shared per environment: the VPC, the NAT instance (ADR 0003), the cache and the vendor mock. Per customer, from one YAML file: the API, the function, the table, the config and the alarms.
 
 ## What happens in an incident (built, run on 17/11/2026)
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/02-incident-loop-dark.png">
-  <img alt="The incident loop: a CloudWatch alarm starts a Step Functions loop that collects evidence, runs a triage agent and a verifier on Bedrock, posts a proposal to a GitHub issue, waits for /approve, changes only an AppConfig flag, checks recovery every minute and posts a post-incident review" src="docs/diagrams/02-incident-loop.png">
-</picture>
+<img alt="The incident loop: a CloudWatch alarm starts a Step Functions loop that collects evidence, runs a triage agent and a verifier on Bedrock, posts a proposal to a GitHub issue, waits for /approve, changes only an AppConfig flag, checks recovery every minute and posts a post-incident review" src="docs/diagrams/02-incident-loop.png">
 
 Five functions with five IAM roles; only `act` can change anything, and only flags. All five diagrams, with the HTML they're rendered from: [docs/diagrams](docs/diagrams/README.md).
 

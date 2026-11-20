@@ -35,10 +35,7 @@ interval, keep the last good config on errors).
 
 ## Diagram
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../diagrams/04-change-lanes-dark.png">
-  <img alt="Three change lanes: lane 1 sets an AppConfig flag that catalog-api polls, live in 6-8 s; lane 2 builds and attests a zip, publishes it by digest and sends 10% of traffic to it for 5 minutes, then promotes or rolls back on the API 5xx and latency alarms; lane 3 plans only the changed Terraform stacks, checks policy, and applies after a human reads the plan" src="../diagrams/04-change-lanes.png">
-</picture>
+<img alt="Three change lanes: lane 1 sets an AppConfig flag that catalog-api polls, live in 6-8 s; lane 2 builds and attests a zip, publishes it by digest and sends 10% of traffic to it for 5 minutes, then promotes or rolls back on the API 5xx and latency alarms; lane 3 plans only the changed Terraform stacks, checks policy, and applies after a human reads the plan" src="../diagrams/04-change-lanes.png">
 
 Lane 2 as built is the canary of [ADR 0016](0016-lane-2-canary.md).
 
