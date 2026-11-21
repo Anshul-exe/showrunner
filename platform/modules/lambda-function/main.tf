@@ -1,6 +1,7 @@
 # One Lambda function the platform way: an sr-* role with the workload permission
 # boundary, a log group with retention and a data-protection policy, arm64, alias
 # `live`. Used by catalog-api (per customer) and vendor-mock (per env).
+# No reserved or provisioned concurrency: on-demand scaling keeps the Free plan cost at 0.
 #
 # Code ownership (ADR 0004, three change lanes): Terraform creates the function from
 # the zip that tools/build/package.py makes, then ignores the code. Code changes ship
