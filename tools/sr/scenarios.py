@@ -35,11 +35,17 @@ S1_LATENCY_MS = 1500
 
 
 S1_TRAFFIC_MIN_LEFT = 20  # alarm ~4 min + approval + recovery checks (10 min): the loop needs viewers
+# The analysis compares the last 3 min with the minutes before the alarm and needs at least
+# 3 of them (ops/incident evidence.py MIN_BASELINE_POINTS, ADR 0015); the first minute is
+# cold starts. 5 min of traffic before S1 (alarm ~2 min later) leaves enough clean minutes.
+S1_TRAFFIC_MIN_AGE = 5
 
 
 def traffic_warning(customer: str, now: float | None = None) -> str | None:
     """S1 needs traffic to the customer until the recovery check is done; issue #15
-    (19/11/2026) escalated because the demo traffic ended before the fix went live."""
+    (19/11/2026) escalated because the demo traffic ended before the fix went live.
+    It also needs traffic *before* the alarm: issue #24 (21/11/2026) started S1 after
+    ~2 min of traffic, and every hypothesis came back "not enough history"."""
     st = traffic.running(now=now)
     now = now or time.time()
     if st is None:
@@ -47,12 +53,18 @@ def traffic_warning(customer: str, now: float | None = None) -> str | None:
                 f"./sr demo traffic --minutes 40 --rps 3 --customer {customer}")
     if customer not in st["customers"]:
         return f"WARNING: the running traffic doesn't include {customer} (it sends to {', '.join(st['customers'])})."
+    warnings = []
     left = (st["ends_at"] - now) / 60
     if left < S1_TRAFFIC_MIN_LEFT:
-        return (f"WARNING: the traffic ends in {left:.0f} min ({time.strftime('%H:%M', time.localtime(st['ends_at']))}); "
-                f"the loop needs viewers for ~{S1_TRAFFIC_MIN_LEFT} min to check the recovery. "
-                "Restart it with --minutes 40, or the check will say 'no traffic'.")
-    return None
+        warnings.append(f"WARNING: the traffic ends in {left:.0f} min ({time.strftime('%H:%M', time.localtime(st['ends_at']))}); "
+                        f"the loop needs viewers for ~{S1_TRAFFIC_MIN_LEFT} min to check the recovery. "
+                        "Restart it with --minutes 40, or the check will say 'no traffic'.")
+    if "started_at" in st and (age := (now - st["started_at"]) / 60) < S1_TRAFFIC_MIN_AGE:
+        ready = time.strftime('%H:%M', time.localtime(st["started_at"] + S1_TRAFFIC_MIN_AGE * 60))
+        warnings.append(f"WARNING: the traffic has run for only {age:.0f} min; the analysis needs a baseline "
+                        f"(the minutes before the alarm), or every hypothesis says 'not enough history'. "
+                        f"Stop S1 (./sr demo s1 stop) and start it again after {ready}.")
+    return "\n".join(warnings) or None
 
 
 def s1(action: str | None, env: str) -> int:
