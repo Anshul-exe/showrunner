@@ -1,0 +1,8 @@
+customer: harbor-news
+env: dev
+tier: standard
+owner: team-harbor
+cost_center: harbor-news
+budget_usd: 10
+catalog: tv
+features: {}
