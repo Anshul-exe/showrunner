@@ -1,5 +1,51 @@
 # Incident loop, recorded runs (fallback for the live demo)
 
+## 20/11/2026 UTC (21/11 IST): S1 in a trial run of the 30-minute demo, issue #26
+
+The whole demo script rehearsed on **dev**, the incident segment live. Record: issue
+[#26](https://github.com/Anshul-exe/showrunner/issues/26) and the audit table
+(`pk = acme-tv-dev-20261120T2040`). Demo traffic: 45 minutes from 20:17 UTC, 3 requests/s
+across the three customers (8,097 requests, all OK). **A second fallback for the
+incident segment**, next to #6.
+
+| UTC | +s from alarm | Event |
+|---|---|---|
+| 20:38:42 | -112 | `./sr demo s1 start`: acme-tv vendor +1,500 ms live (`chaos` #28, 8.0 s), after 21 min of traffic |
+| 20:40:34 | 0 | `sr-acme-tv-dev-api-latency` -> ALARM (1,557 and 1,732 ms) |
+| 20:40:37 | +4 | issue #26 opened; `vendor-latency` joins at 20:40:47 |
+| 20:40:52 | +19 | analysis + proposal A1 `vendor-fallback-on` posted |
+| 20:41:49 | +75 | the owner comments `/approve A1` |
+| 20:42:45 | **+131** | fallback live: AppConfig `flags` #29, 6.4 s, no code deploy |
+| 20:45:47 | **+313** | recovered: API p95 28.0, 38.5 ms (253 requests in 5 min); post-incident review posted, issue closed |
+| 20:47:30 | | `./sr demo s1 stop` (chaos off, flags at defaults, #31) |
+
+- **The analysis:** vendor-recs 1,693 ms in the last 3 min (58 calls) vs 108 ms, the
+  median of 27 min before the alarm: H1 `vendor-recs` **CONFIRMED** by checks. H2
+  `config-change` **REFUTED**: nothing deployed in the window. Wrong suspects ruled out
+  with numbers: valkey 1.9 ms (0.1% of the API's 1,557 ms; 942 µs server side), DynamoDB
+  5.1 ms (0.3%). 14 evidence items; 2 model calls (triage 1,543 + 194 tokens).
+- **Against #6 (18/11):** alarm -> fallback live 131 s (152 s), alarm -> recovered 313 s
+  (334 s). The difference is the human: `/approve` came at +75 s (+85 s).
+
+**What went wrong first, also in the record:**
+- **S1 started with ~2 minutes of traffic history** (~20:05 UTC; the script asks for
+  10 minutes of warm-up). The loop called every hypothesis "not enough history" and
+  proposed nothing (issue [#24](https://github.com/Anshul-exe/showrunner/issues/24)),
+  which is ADR 0015 working: one minute of data can't tell a slow vendor from a cold
+  start. Reset, warmed up, re-run as above. `sr demo s1 start` now warns when the
+  traffic is younger than 5 minutes.
+- **A second customer paged** (nordic-sports, issues
+  [#25](https://github.com/Anshul-exe/showrunner/issues/25) and
+  [#27](https://github.com/Anshul-exe/showrunner/issues/27)): its own chaos was off, but
+  its vendor p95 passed 1 s in exactly the 4 minutes when the **shared** vendor mock
+  started a new instance (S1's 1.6 s calls scale it from 1 to 3-4 instances, and a new
+  instance's first request takes 0.9-1.4 s, most likely the boto3 import and the
+  AppConfig session it opens on first use; Lambda's own init is only 60-106 ms).
+  Throttles 0. The loop confirmed it from nordic-sports' own numbers and proposed the
+  fallback; not approved, so it escalated with no change. A real lesson: a shared
+  dependency couples customers, which is why every dependency is measured per customer.
+  #24, #25 and #27 are closed with `resolve` rows.
+
 ## 19/11/2026: S1 with the new analysis (G3), issue #15: the escalation path
 
 Scenario S1 on **dev** again, with the loop's code from main (case files and G3, ADR

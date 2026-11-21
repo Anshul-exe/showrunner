@@ -1,6 +1,8 @@
 """sr CLI: which AWS profile it picks, the account guard's messages, and the traffic
 tool's stop/throttle reporting (no AWS calls)."""
 
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -140,12 +142,33 @@ def test_s1_start_warns_when_the_traffic_ends_too_soon(tmp_path, monkeypatch):
     monkeypatch.setattr(tr, "STATE", state)
     now = 1_000_000.0
     assert "no `sr demo traffic` running" in scenarios.traffic_warning("acme-tv", now)
-    tr.write_state(["acme-tv", "nordic-sports"], now + 12 * 60, state)
+    tr.write_state(["acme-tv", "nordic-sports"], now + 12 * 60, state, started_at=now - 10 * 60)
     w = scenarios.traffic_warning("acme-tv", now)
     assert "ends in 12 min" in w and "--minutes 40" in w
-    tr.write_state(["nordic-sports"], now + 40 * 60, state)
+    tr.write_state(["nordic-sports"], now + 40 * 60, state, started_at=now - 10 * 60)
     assert "doesn't include acme-tv" in scenarios.traffic_warning("acme-tv", now)
-    tr.write_state(["acme-tv"], now + 40 * 60, state)
+    tr.write_state(["acme-tv"], now + 40 * 60, state, started_at=now - 10 * 60)
+    assert scenarios.traffic_warning("acme-tv", now) is None
+
+
+def test_s1_start_warns_when_the_traffic_is_too_young_for_a_baseline(tmp_path, monkeypatch):
+    # issue #24 (21/11/2026): S1 after ~2 min of traffic -> "not enough history", no proposal
+    import scenarios
+    import traffic as tr
+
+    state = tmp_path / "traffic.json"
+    monkeypatch.setattr(tr, "STATE", state)
+    now = 1_000_000.0
+    tr.write_state(["acme-tv"], now + 43 * 60, state, started_at=now - 2 * 60)
+    w = scenarios.traffic_warning("acme-tv", now)
+    assert "run for only 2 min" in w and "not enough history" in w and "ends in" not in w
+    tr.write_state(["acme-tv"], now + 38 * 60, state, started_at=now - scenarios.S1_TRAFFIC_MIN_AGE * 60)
+    assert scenarios.traffic_warning("acme-tv", now) is None
+    # young and ending soon: both warnings, one per line
+    tr.write_state(["acme-tv"], now + 3 * 60, state, started_at=now - 60)
+    assert len(scenarios.traffic_warning("acme-tv", now).splitlines()) == 2
+    # a state file from before started_at existed: no age warning, nothing breaks
+    state.write_text(json.dumps({"pid": os.getpid(), "customers": ["acme-tv"], "ends_at": now + 40 * 60}))
     assert scenarios.traffic_warning("acme-tv", now) is None
 
 

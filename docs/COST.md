@@ -67,19 +67,22 @@ pool-vs-silo trade-off in ADR 0006, in numbers.
 **Not yet measured:** the first real bill. Cost Explorer data lags ~24 h; this table
 gets an "actual" column after the first full week.
 
-## Real spend to date (Cost Explorer, read 19/11/2026 14:05 UTC)
+## Real spend to date (Cost Explorer, read 21/11/2026 00:30 UTC)
 
-Cost Explorer lags up to a day, so 19/11 is partial. **Gross** = usage before the
+Cost Explorer lags up to a day, so 20/11 is partial. **Gross** = usage before the
 Free-plan credits (what the budgets watch); **net** = what is billed.
 
 | Period | Gross | Net (after credits) | Budget |
 |---|---|---|---|
-| 01-19/11/2026 (first usage 17/11) | **$1.11** | **$0.00** (credits -$1.11) | $60/month: 1.8% used |
-| Bedrock, same period | $0.003 | $0.00 | $5/month: 0.06% used |
+| 01-20/11/2026 (first usage 17/11) | **$1.97** | **$0.00** (all of it covered by credits) | $60/month: 3.3% used |
+| Bedrock, same period | $0.005 | $0.00 | $5/month: 0.1% used |
 
-By service, gross: VPC $0.47 (public IPv4 + Reachability Analyzer), ElastiCache $0.27,
-EC2 compute $0.26 (the NAT instance), Systems Manager $0.05, EBS $0.03, API Gateway
-$0.01, S3 $0.01, CloudWatch $0.005.
+The budget's own figure lags Cost Explorer: it showed $1.75 on 20/11 at 20:03 UTC.
+By day, gross: 17/11 $0.09, 18/11 $0.88, 19/11 $0.69, 20/11 $0.31 (partial).
+By service, gross: VPC $0.63 (public IPv4 + Reachability Analyzer), EC2 compute $0.53
+(the NAT instance), ElastiCache $0.53, Systems Manager $0.09, Cost Explorer API $0.06
+(my own queries, $0.01 each), EBS $0.05, API Gateway $0.04, CloudWatch $0.03, S3 $0.02,
+Bedrock $0.005.
 
 **18/11, the one full day: $0.88 gross.** Of that, $0.30 was 3 Reachability Analyzer runs
 (the S3 drills, $0.10 each). The rest, $0.58/day, is the always-on floor (NAT instance

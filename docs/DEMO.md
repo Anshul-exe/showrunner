@@ -23,6 +23,10 @@ S1 needs a quiet dev: start it only if nothing was applied or deployed to dev in
 viewers until the end: `./sr demo s1 start` warns if no traffic is running or it ends
 within 20 minutes. Restart the traffic then; with no requests the loop can only say
 "can't verify: no traffic" ([issue #15](https://github.com/Anshul-exe/showrunner/issues/15)).
+And it needs viewers from **before**: the analysis compares the alarm with the minutes before
+it, so start the traffic 10 minutes ahead. `./sr demo s1 start` warns if the traffic has run
+for less than 5 minutes: with no baseline every hypothesis says "not enough history" and
+nothing is proposed ([issue #24](https://github.com/Anshul-exe/showrunner/issues/24)).
 
 Open in one browser window: the README, the CloudWatch dashboard (`sr-dev-operations`),
 the repo's Issues filtered by `label:incident`, PR #5 (plan comments), PR #4 (supply

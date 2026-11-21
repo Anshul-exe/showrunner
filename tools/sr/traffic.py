@@ -60,15 +60,18 @@ def stop_message(reason: str, started: float, sent: int, totals: dict[str, int])
     return f"traffic stopped: {reason} after {mins:.1f} min; {sent} requests sent ({parts or 'no responses'})"
 
 
-# While `sr demo traffic` runs, it says until when (so `sr demo s1 start` can warn that the
-# traffic will end before the loop can check the recovery: issue #15, 19/11/2026).
+# While `sr demo traffic` runs, it says since and until when, so `sr demo s1 start` can warn
+# that the traffic will end before the loop can check the recovery (issue #15, 19/11/2026)
+# or is too young to give the analysis a baseline (issue #24, 21/11/2026).
 STATE = ROOT / ".sr-state" / "traffic.json"
 
 
-def write_state(customers: list[str], ends_at: float, path: Path | None = None) -> None:
+def write_state(customers: list[str], ends_at: float, path: Path | None = None,
+                started_at: float | None = None) -> None:
     path = path or STATE
     path.parent.mkdir(exist_ok=True)
-    path.write_text(json.dumps({"pid": os.getpid(), "customers": customers, "ends_at": ends_at}))
+    path.write_text(json.dumps({"pid": os.getpid(), "customers": customers, "ends_at": ends_at,
+                                "started_at": started_at or time.time()}))
 
 
 def clear_state(path: Path | None = None) -> None:
@@ -134,7 +137,7 @@ def run(customers: list[str], env: str, minutes: float, rps: float) -> str:
     next_report = started + 15
     sent = 0
     print(f"traffic: {rps} rps across {', '.join(customers)} for {minutes} min (Ctrl-C to stop)", flush=True)
-    write_state(customers, end)
+    write_state(customers, end, started_at=started)
     pool = ThreadPoolExecutor(max_workers=16)
     try:
         while stop["reason"] is None:
